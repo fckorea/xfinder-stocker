@@ -1,0 +1,5 @@
+logs/*
+conf/lastday.conf
+conf/dev_config.conf
+conf/config.conf
+conf/real_config.conf

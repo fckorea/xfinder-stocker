@@ -1,2 +1,5 @@
 # xfinder-stocker
-Stocker
+X-Finder Stocker
+
+# Stocker.py
+* Default config path is conf/config.conf
