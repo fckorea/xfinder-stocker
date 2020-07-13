@@ -1265,7 +1265,7 @@ def fnGetMoreInfoMyStockFromWeb():
   global CONNECTION_OPTION
   global SELL_OPTION
 
-  LOGGER.info('Get Profit cut info from web!')
+  LOGGER.info('Get More info from web!')
 
   data = None
 
