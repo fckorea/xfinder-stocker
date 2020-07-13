@@ -55,7 +55,8 @@ SELL_OPTION = {   # Only unlisted cut
   'profit_cut': False,
   'no_more_buy_profit_cut': False,
   'profit_cut_by_stats': False,
-  'target_price_cut': False
+  'target_price_cut': False,
+  'minimum_profit_cut_percentage': 5
 }
 TELEGRAM_OPTION = {}
 
@@ -1364,12 +1365,8 @@ def fnCheckBuySellStocks():
 
   # 3. PROFIT_CUT_BY_STATS
   sell_profit_cut_by_stats = []
-  profit_cut_avg_stats = fnGetProfitCutStats()
-  # TEST
-  # profit_cut_avg_stats['KOSPI']['avg_profit_rate'] = 2.1
-  # END OF TEST
   if SELL_OPTION['profit_cut_by_stats'] is True:
-    sell_profit_cut_by_stats = list(map(lambda x: x['symbol_code'], list(filter(lambda x: 'market' in x and ((x['profit_rate'] * 100) >= profit_cut_avg_stats[x['market']]['avg_profit_rate']), ACCOUNT_INFO['my_stocks']))))
+    sell_profit_cut_by_stats = list(map(lambda x: x['symbol_code'], list(filter(lambda x: 'market' in x and ((x['profit_rate'] * 100) >= SELL_OPTION['profit_cut_by_stats_percentage'][x['market']]['avg_profit_rate']), ACCOUNT_INFO['my_stocks']))))
   
   # 4. TARGET_PRICE_CUT
   sell_target_price_cut = []
@@ -1422,7 +1419,7 @@ def fnCheckBuySellStocks():
       if stock['symbol_code'] in sell_profit_cut:
         sell_type.append('PROFIT_CUT(>=%.2f%%)' % (SELL_OPTION['profit_cut_percentage']))
       if stock['symbol_code'] in sell_profit_cut_by_stats:
-        sell_type.append('PROFIT_CUT_BY_STATS(>=%.2f%%, %s)' % (profit_cut_avg_stats[stock['market']]['avg_profit_rate'], stock['market']))
+        sell_type.append('PROFIT_CUT_BY_STATS(>=%.2f%%, %s)' % (SELL_OPTION['profit_cut_by_stats_percentage'][stock['market']]['avg_profit_rate'], stock['market']))
       if stock['symbol_code'] in sell_target_price_cut:
         sell_type.append('TARGET_PRICE_CUT(>=%s)' % (fnCommify(stock['target_price'])))
       if stock['symbol_code'] in sell_more_profit_cut:
@@ -1499,6 +1496,7 @@ def fnMain(argOptions, argArgs):
 
   try:
     fnLoadingOptions()
+
     if fnCheckOptions() is False:
       return False
 
@@ -1528,6 +1526,8 @@ def fnMain(argOptions, argArgs):
       message.append('    - 익절 매도 설정: %s' % (SELL_OPTION['profit_cut']))
     if SELL_OPTION['profit_cut_by_stats'] is True:
       message.append('    - 통계 익절 매도 설정: %s (%ddays)' % (SELL_OPTION['profit_cut_by_stats'], SELL_OPTION['profit_cut_by_stats_days']))
+      for market in SELL_OPTION['profit_cut_by_stats_percentage']:
+        message.append('      .%s: %.2f%%' % (market, SELL_OPTION['profit_cut_by_stats_percentage'][market]['avg_profit_rate']))
     else:
       message.append('    - 통계 익절 매도 설정: %s' % (SELL_OPTION['profit_cut_by_stats']))
     message.append('    - 목표가 매도 설정: %s' % (SELL_OPTION['target_price_cut']))
@@ -1535,6 +1535,8 @@ def fnMain(argOptions, argArgs):
       message.append('    - 매수금 부족 시 익절 매도 설정: %s (>=%.2f%%)' % (SELL_OPTION['no_more_buy_profit_cut'], SELL_OPTION['no_more_buy_profit_cut_percentage']))
     else:
       message.append('    - 매수금 부족 시 익절 매도 설정: %s' % (SELL_OPTION['no_more_buy_profit_cut']))
+    if 'minimum_profit_cut_percentage' in SELL_OPTION:
+      message.append('    - 최소 익절 매도 수익률: %.2f%%' % (SELL_OPTION['minimum_profit_cut_percentage']))
     message.append('+ 시스템 자동 종료 설정: %s' % (SYSTEM_OPTION['auto_shutdown']))
 
     fnSendMessage(message)
@@ -1658,6 +1660,44 @@ def fnLoadingOptions():
     # Loading Sell Option
     if 'sell_option' in CONFIG:
       SELL_OPTION.update(CONFIG['sell_option'])
+      SELL_OPTION['profit_cut_by_stats_percentage'] = fnGetProfitCutStats()
+      # profit cut percentage
+      if 'minimum_profit_cut_percentage' in SELL_OPTION:
+        LOGGER.debug('minimum_profit_cut_percentage setted! (%.2f%%)' % (
+          SELL_OPTION['minimum_profit_cut_percentage']
+        ))
+
+        if 'profit_cut_percentage' in SELL_OPTION and SELL_OPTION['profit_cut_percentage'] < SELL_OPTION['minimum_profit_cut_percentage']:
+          LOGGER.debug('profit_cut_percentage is lower than minimum_profit_cut_percentage! (%.2f%%)' % (
+            SELL_OPTION['profit_cut_percentage']
+          ))
+          SELL_OPTION['profit_cut_percentage'] = SELL_OPTION['minimum_profit_cut_percentage']
+          LOGGER.debug('changed profit_cut_percentage! (%.2f%%)' % (
+            SELL_OPTION['profit_cut_percentage']
+          ))
+        
+        if 'profit_cut_by_stats_percentage' in SELL_OPTION:
+          for market in SELL_OPTION['profit_cut_by_stats_percentage']:
+            if SELL_OPTION['profit_cut_by_stats_percentage'][market]['avg_profit_rate'] < SELL_OPTION['minimum_profit_cut_percentage']:
+              LOGGER.debug('profit_cut_by_stats_percentage[%s] is lower than minimum_profit_cut_percentage! (%.2f%%)' % (
+                market,
+                SELL_OPTION['profit_cut_by_stats_percentage'][market]['avg_profit_rate']
+              ))
+              SELL_OPTION['profit_cut_by_stats_percentage'][market]['avg_profit_rate'] = SELL_OPTION['minimum_profit_cut_percentage']
+              LOGGER.debug('changed profit_cut_by_stats_percentage[%s]! (%.2f%%)' % (
+                market,
+                SELL_OPTION['profit_cut_by_stats_percentage'][market]['avg_profit_rate']
+              ))
+        
+        # no more buy profit cut percentage
+        if 'no_more_buy_profit_cut_percentage' in SELL_OPTION and SELL_OPTION['no_more_buy_profit_cut_percentage'] < SELL_OPTION['minimum_profit_cut_percentage']:
+          LOGGER.debug('no_more_buy_profit_cut_percentage is lower than minimum_profit_cut_percentage! (%.2f%%)' % (
+            SELL_OPTION['no_more_buy_profit_cut_percentage']
+          ))
+          SELL_OPTION['no_more_buy_profit_cut_percentage'] = SELL_OPTION['minimum_profit_cut_percentage']
+          LOGGER.debug('changed no_more_buy_profit_cut_percentage! (%.2f%%)' % (
+            SELL_OPTION['no_more_buy_profit_cut_percentage']
+          ))
 
     return True
   except:
