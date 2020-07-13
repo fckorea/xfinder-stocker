@@ -732,7 +732,7 @@ class SellWorker(QThread):
     if len(TRADER.trading_sell_list.keys()) == 0:
       message.append('매도할 종목이 없습니다.')
       message.append('')
-      message.append('CONSENSUS UNLISTED: %s개' % (fnCommify(len(TODAY_LIST['unlisted']))))
+      message.append('Sell Signal: %s개' % (fnCommify(len(TODAY_LIST['unlisted']))))
       message.append('보유주식수: %s개' % (fnCommify(len(ACCOUNT_INFO['my_stocks']))))
       
       fnSendMessage(message)
@@ -875,7 +875,7 @@ class BuyWorker(QThread):
       if len(TRADER.trading_buy_list.keys()) == 0:
         message.append('매수할 종목이 없습니다.')
         message.append('')
-        message.append('CONSENSUS NEW: %s개' % (fnCommify(len(new_list))))
+        message.append('Buy Signal: %s개' % (fnCommify(len(new_list))))
         message.append('보유주식수: %s개' % (fnCommify(len(ACCOUNT_INFO['my_stocks']))))
         fnSendMessage(message)
       else:
@@ -995,7 +995,7 @@ def fnSendConsensusInfo():
 
   message = []
 
-  message.append('<<< CONSENSUS 매도 예정 종목 >>>')
+  message.append('<<< 매도 예정 종목 >>>')
   
   if len(TODAY_LIST['unlisted']) == 0:
     message.append('매도 종목 없음.')
@@ -1011,7 +1011,7 @@ def fnSendConsensusInfo():
       info['market'],
       fnCommify(info['market_rank'])
     ))
-    message.append('Consensus 기간: %s ~ %s' % (
+    message.append('Signal 기간: %s ~ %s' % (
       info['first_date'],
       info['last_date']
     ))
@@ -1049,7 +1049,7 @@ def fnSendConsensusInfo():
 
   message = []
 
-  message.append('<<< CONSENSUS 매수 예정 종목 >>>')
+  message.append('<<< 매수 예정 종목 >>>')
 
   if len(TODAY_LIST['new']) == 0:
     message.append('매수 종목 없음.')
@@ -1061,7 +1061,7 @@ def fnSendConsensusInfo():
       info['symbol_code'],
       info['market'], fnCommify(info['market_rank'])
     ))
-    message.append('Consensus Date: %s' % (
+    message.append('Signal Date: %s' % (
       info['consensus_date']
     ))
     message.append('LYR: %.2f / 5.0' % (
@@ -1544,8 +1544,8 @@ def fnMain(argOptions, argArgs):
     lastday = fnGetConsensusLatestInfo()
 
     if LASTDAY is not None and LASTDAY == lastday:
-      message = [ '*** 이미 거래한 Consensus 입니다. ***' ]
-      message.append('최근 Consensus 일자: %s' % (lastday))
+      message = [ '*** 이미 진행한 날짜 입니다. ***' ]
+      message.append('최근 진행 일자: %s' % (lastday))
       message.append('마지막으로 진행한 일자: %s' % (LASTDAY))
       
       fnSendMessage(message)
