@@ -1371,7 +1371,10 @@ def fnCheckBuySellStocks():
   # 4. TARGET_PRICE_CUT
   sell_target_price_cut = []
   if SELL_OPTION['target_price_cut'] is True:
-    sell_target_price_cut = list(map(lambda x: x['symbol_code'], list(filter(lambda x: 'target_price' in x and (x['trade_price'] >= x['target_price']), ACCOUNT_INFO['my_stocks']))))
+    if 'minimum_profit_cut_percentage' in SELL_OPTION:
+      sell_target_price_cut = list(map(lambda x: x['symbol_code'], list(filter(lambda x: 'target_price' in x and (x['trade_price'] >= x['target_price']) and (x['profit_rate'] * 100) >= SELL_OPTION['minimum_profit_cut_percentage'], ACCOUNT_INFO['my_stocks']))))
+    else:
+      sell_target_price_cut = list(map(lambda x: x['symbol_code'], list(filter(lambda x: 'target_price' in x and (x['trade_price'] >= x['target_price']), ACCOUNT_INFO['my_stocks']))))
   
   # 5. MORE PROFIT_CUT LIST
   sell_more_profit_cut = []
