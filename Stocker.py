@@ -1356,7 +1356,10 @@ def fnCheckBuySellStocks():
   # 1. UNLISTED LIST
   unlisted_symbol_code = list(map(lambda x: x['symbol_code'][1:], TODAY_LIST['unlisted']))
   
-  sell_unlisted = list(filter(lambda x: x['symbol_code'] in unlisted_symbol_code and x['quantity'] > 0, ACCOUNT_INFO['my_stocks']))
+  if 'minimum_profit_cut_percentage' in SELL_OPTION:
+    sell_unlisted = list(filter(lambda x: x['symbol_code'] in unlisted_symbol_code and x['quantity'] > 0 and (x['profit_rate'] * 100) >= SELL_OPTION['minimum_profit_cut_percentage'], ACCOUNT_INFO['my_stocks']))
+  else:
+    sell_unlisted = list(filter(lambda x: x['symbol_code'] in unlisted_symbol_code and x['quantity'] > 0, ACCOUNT_INFO['my_stocks']))
 
   # 2. PROFIT_CUT LIST
   sell_profit_cut = []
@@ -1664,12 +1667,14 @@ def fnLoadingOptions():
     if 'sell_option' in CONFIG:
       SELL_OPTION.update(CONFIG['sell_option'])
       SELL_OPTION['profit_cut_by_stats_percentage'] = fnGetProfitCutStats()
-      # profit cut percentage
+      
+      # Check minimum_profit_cut_percentage
       if 'minimum_profit_cut_percentage' in SELL_OPTION:
         LOGGER.debug('minimum_profit_cut_percentage setted! (%.2f%%)' % (
           SELL_OPTION['minimum_profit_cut_percentage']
         ))
 
+        # 2. set profit_cut_percentage => minimum_profit_cut_percentage
         if 'profit_cut_percentage' in SELL_OPTION and SELL_OPTION['profit_cut_percentage'] < SELL_OPTION['minimum_profit_cut_percentage']:
           LOGGER.debug('profit_cut_percentage is lower than minimum_profit_cut_percentage! (%.2f%%)' % (
             SELL_OPTION['profit_cut_percentage']
@@ -1679,6 +1684,7 @@ def fnLoadingOptions():
             SELL_OPTION['profit_cut_percentage']
           ))
         
+        # 3. set profit_cut_percentage => minimum_profit_cut_percentage
         if 'profit_cut_by_stats_percentage' in SELL_OPTION:
           for market in SELL_OPTION['profit_cut_by_stats_percentage']:
             if SELL_OPTION['profit_cut_by_stats_percentage'][market]['avg_profit_rate'] < SELL_OPTION['minimum_profit_cut_percentage']:
