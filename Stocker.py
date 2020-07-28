@@ -85,6 +85,7 @@ TRADING_LIST = {
   'sell': [],
   'buy': []
 }
+SELL_EXCEPTION = []
 
 class TerminateWorker(QThread):
   def run(self):
@@ -1296,6 +1297,7 @@ def fnCheckBuySellStocks():
   global TRADER
   global ACCOUNT_INFO
   global TODAY_LIST
+  global SELL_EXCEPTION
   global TRADING_LIST
 
   # Make Buy List
@@ -1361,15 +1363,21 @@ def fnCheckBuySellStocks():
   else:
     sell_unlisted = list(filter(lambda x: x['symbol_code'] in unlisted_symbol_code and x['quantity'] > 0, ACCOUNT_INFO['my_stocks']))
 
+  sell_unlisted = list(filter(lambda x: x not in SELL_EXCEPTION, sell_unlisted))
+
   # 2. PROFIT_CUT LIST
   sell_profit_cut = []
   if SELL_OPTION['profit_cut'] is True:
     sell_profit_cut = list(map(lambda x: x['symbol_code'], list(filter(lambda x: (x['profit_rate'] * 100) >= SELL_OPTION['profit_cut_percentage'], ACCOUNT_INFO['my_stocks']))))
+  
+  sell_profit_cut = list(filter(lambda x: x not in SELL_EXCEPTION, sell_profit_cut))
 
   # 3. PROFIT_CUT_BY_STATS
   sell_profit_cut_by_stats = []
   if SELL_OPTION['profit_cut_by_stats'] is True:
     sell_profit_cut_by_stats = list(map(lambda x: x['symbol_code'], list(filter(lambda x: 'market' in x and ((x['profit_rate'] * 100) >= SELL_OPTION['profit_cut_by_stats_percentage'][x['market']]['avg_profit_rate']), ACCOUNT_INFO['my_stocks']))))
+  
+  sell_profit_cut_by_stats = list(filter(lambda x: x not in SELL_EXCEPTION, sell_profit_cut_by_stats))
   
   # 4. TARGET_PRICE_CUT
   sell_target_price_cut = []
@@ -1379,10 +1387,14 @@ def fnCheckBuySellStocks():
     else:
       sell_target_price_cut = list(map(lambda x: x['symbol_code'], list(filter(lambda x: 'target_price' in x and (x['trade_price'] >= x['target_price']), ACCOUNT_INFO['my_stocks']))))
   
+  sell_target_price_cut = list(filter(lambda x: x not in SELL_EXCEPTION, sell_target_price_cut))
+  
   # 5. MORE PROFIT_CUT LIST
   sell_more_profit_cut = []
   if SELL_OPTION['no_more_buy_profit_cut'] is True:
     sell_more_profit_cut = list(map(lambda x: x['symbol_code'], list(filter(lambda x: (x['profit_rate'] * 100) >= SELL_OPTION['no_more_buy_profit_cut_percentage'], ACCOUNT_INFO['my_stocks']))))
+  
+  sell_more_profit_cut = list(filter(lambda x: x not in SELL_EXCEPTION, sell_more_profit_cut))
 
   # unlisted + profit_cut + sell_profit_cut_by_stats + sell_target_price_cut
   sell_symbols = list(set(sell_unlisted + sell_profit_cut + sell_profit_cut_by_stats + sell_target_price_cut))
@@ -1494,6 +1506,7 @@ def fnMain(argOptions, argArgs):
   global TELEGRAM_BOT
   global ACCOUNT_INFO
   global TODAY_LIST
+  global SELL_EXCEPTION
 
   global TERMINATE
 
@@ -1543,6 +1556,8 @@ def fnMain(argOptions, argArgs):
       message.append('    - 매수금 부족 시 익절 매도 설정: %s' % (SELL_OPTION['no_more_buy_profit_cut']))
     if 'minimum_profit_cut_percentage' in SELL_OPTION:
       message.append('    - 최소 익절 매도 수익률: %.2f%%' % (SELL_OPTION['minimum_profit_cut_percentage']))
+    if len(SELL_EXCEPTION) > 0:
+      message.append('+ 판매 예외 종목 코드: %s' % (','.join(SELL_EXCEPTION)))
     message.append('+ 시스템 자동 종료 설정: %s' % (SYSTEM_OPTION['auto_shutdown']))
 
     fnSendMessage(message)
@@ -1644,6 +1659,7 @@ def fnLoadingOptions():
   global KIWOOM_OPTION
   global CONNECTION_OPTION
   global SELL_OPTION
+  global SELL_EXCEPTION
   global TELEGRAM_OPTION
 
   try:
@@ -1707,6 +1723,10 @@ def fnLoadingOptions():
           LOGGER.debug('changed no_more_buy_profit_cut_percentage! (%.2f%%)' % (
             SELL_OPTION['no_more_buy_profit_cut_percentage']
           ))
+
+    # Loading Sell Exception
+    if 'sell_exception' in CONFIG:
+      SELL_EXCEPTION.update(CONFIG['sell_exception'])
 
     return True
   except:
