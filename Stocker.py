@@ -1726,7 +1726,8 @@ def fnLoadingOptions():
 
     # Loading Sell Exception
     if 'sell_exception' in CONFIG:
-      SELL_EXCEPTION.update(CONFIG['sell_exception'])
+      LOGGER.debug('Setting the sell exception! (%s)' % (','.join(CONFIG['sell_exception'])))
+      SELL_EXCEPTION = CONFIG['sell_exception']
 
     return True
   except:
@@ -1814,7 +1815,6 @@ def fnCheckOptions():
     elif SELL_OPTION['no_more_buy_profit_cut'] is True and 'no_more_buy_profit_cut_percentage' in SELL_OPTION:
       LOGGER.info('\tNo More Buy Profit Cut Percentage: %d%%' % (SELL_OPTION['no_more_buy_profit_cut_percentage']))
 
-    
     return True
   except:
     LOGGER.info(SYSTEM_OPTION)
