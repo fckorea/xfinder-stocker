@@ -1528,7 +1528,6 @@ def fnMain(argOptions, argArgs):
       # Weekend
       message = [ '주인님, 저는 주말에 쉬어요! 😎' ]
       fnSendMessage(message)
-      SYSTEM_OPTION['auto_shutdown'] = True
       return False
 
     fnGetLastDay()
