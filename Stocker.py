@@ -44,12 +44,24 @@ SYSTEM_OPTION = {
   'auto_shutdown': False
 }
 KIWOOM_OPTION = {
-  'money_per_buy': 250000,
-  'level': 4
+  'money_per_buy': 250000
 }
 CONNECTION_OPTION = {
   'waiting': 600,
   'try_count': 3
+}
+BUY_OPTION = {
+  'buy_level': 0,
+  'buy_level_0_option': {
+    'level': 4
+  },
+  'buy_level_1_option': {
+    'level': 4
+  },
+  'buy_level_2_option': {
+    'level': 4,
+    'rate': 0.3
+  }
 }
 SELL_OPTION = {   # Only unlisted cut
   'profit_cut': False,
@@ -1163,11 +1175,8 @@ def fnGetData(argURL, params=None, headers=None, argTryCount=5):
 
 #=============================== Consensus Functions ===============================#
 def fnGetConsensusInfo():
-  return fnGetConsensusInfoFromWeb()
-
-def fnGetConsensusInfoFromWeb():
   global LOGGER
-  global KIWOOM_OPTION
+  global BUY_OPTION
   global CONNECTION_OPTION
 
   LOGGER.info('Get Consensus from web!')
@@ -1185,7 +1194,7 @@ def fnGetConsensusInfoFromWeb():
     for target in ['unlisted', 'new']:
       for try_count in range(CONNECTION_OPTION['try_count']):
         try:
-          params = { "lyr": KIWOOM_OPTION['level'] } if target == 'new' else {}
+          params = { "lyr": BUY_OPTION['buy_level_0_option']['level'] } if target == 'new' else {}
           res = fnGetData((url % (target, today)), params=params)
           data[target] = res.json()['data']['rows']
           break
@@ -1200,9 +1209,6 @@ def fnGetConsensusInfoFromWeb():
     return data
 
 def fnGetConsensusLatestInfo():
-  return fnGetConsensusLatestInfoFromWeb()
-
-def fnGetConsensusLatestInfoFromWeb():
   global LOGGER
   global CONNECTION_OPTION
 
@@ -1229,9 +1235,6 @@ def fnGetConsensusLatestInfoFromWeb():
     return data
 
 def fnGetProfitCutStats():
-  return fnGetProfitCutStatsFromWeb()
-
-def fnGetProfitCutStatsFromWeb():
   global LOGGER
   global CONNECTION_OPTION
   global SELL_OPTION
@@ -1259,9 +1262,6 @@ def fnGetProfitCutStatsFromWeb():
     return data
 
 def fnGetMoreInfoMyStock():
-  return fnGetMoreInfoMyStockFromWeb()
-
-def fnGetMoreInfoMyStockFromWeb():
   global LOGGER
   global CONNECTION_OPTION
   global SELL_OPTION
@@ -1282,6 +1282,51 @@ def fnGetMoreInfoMyStockFromWeb():
         LOGGER.error(res.text)
         LOGGER.error(traceback.format_exc())
         LOGGER.error(' -x- retry (%d / %d)' % (try_count + 1, CONNECTION_OPTION['try_count']))
+  except:
+    LOGGER.error(res.text)
+    LOGGER.error(traceback.format_exc())
+  finally:
+    return data
+
+def fnGetAttackingBuyList(argLevel=1):
+  global LOGGER
+  global BUY_OPTION
+  global CONNECTION_OPTION
+
+  LOGGER.info('Get Attacking Buy Info from web!')
+
+  data = {}
+
+  try:
+    url = 'http://tbx.kr/api/v1/trader/consensus/change/%s'
+
+    today = datetime.today().strftime("%Y-%m-%d")
+
+    
+
+    for buy_level in range(1, argLevel + 1):
+      if buy_level == 1:
+        params = {
+          'type': 'lyr',
+          'lyr': BUY_OPTION['buy_level_1_option']['level']
+        }
+
+      if buy_level == 2:
+        params = {
+          'type': 'target_price',
+          'lyr': BUY_OPTION['buy_level_2_option']['level'],
+          'rate': BUY_OPTION['buy_level_2_option']['rate']
+        }
+
+      for try_count in range(CONNECTION_OPTION['try_count']):
+        try:
+          res = fnGetData((url % (today)), params=params)
+          data[buy_level] = res.json()['data']['rows']
+          break
+        except:
+          LOGGER.error(res.text)
+          LOGGER.error(traceback.format_exc())
+          LOGGER.error(' -x- retry (%d / %d)' % (try_count + 1, CONNECTION_OPTION['try_count']))
   except:
     LOGGER.error(res.text)
     LOGGER.error(traceback.format_exc())
@@ -1495,6 +1540,7 @@ def fnMain(argOptions, argArgs):
   global SYSTEM_OPTION
   global KIWOOM_OPTION
   global CONNECTION_OPTION
+  global BUY_OPTION
   global SELL_OPTION
   global TELEGRAM_OPTION
 
@@ -1536,7 +1582,11 @@ def fnMain(argOptions, argArgs):
     message.append('*** CONFIG ***')
     message.append('+ 거래계좌번호: %s' % (KIWOOM_OPTION['account_number']))
     message.append('+ 종목 당 매수 금액: %s원' % (fnCommify(KIWOOM_OPTION['money_per_buy'])))
-    message.append('+ 매수 Level: %s' % (KIWOOM_OPTION['level']))
+    message.append('+ 매수 Level: %s' % (BUY_OPTION['buy_level']))
+    message.append('+ 매수 조건')
+    message.append('    - Level0: %s' % (BUY_OPTION['buy_level_0_option']['level']))
+    message.append('    - Level1: %s' % (BUY_OPTION['buy_level_1_option']['level']))
+    message.append('    - Level2: %s, %.2f' % (BUY_OPTION['buy_level_2_option']['level'], BUY_OPTION['buy_level_2_option']['rate'] * 100))
     message.append('+ 매도 조건')
     if SELL_OPTION['profit_cut'] is True:
       message.append('    - 익절 매도 설정: %s (>=%.2f%%)' % (SELL_OPTION['profit_cut'], SELL_OPTION['profit_cut_percentage']))
@@ -1573,6 +1623,9 @@ def fnMain(argOptions, argArgs):
       return True
 
     TODAY_LIST = fnGetConsensusInfo()
+
+    test = fnGetAttackingBuyList(BUY_OPTION['buy_level'])
+    print(test)
 
     # CONSENSUS INFO
     fnSendConsensusInfo()
@@ -1657,6 +1710,7 @@ def fnLoadingOptions():
   global SYSTEM_OPTION
   global KIWOOM_OPTION
   global CONNECTION_OPTION
+  global BUY_OPTION
   global SELL_OPTION
   global SELL_EXCEPTION
   global TELEGRAM_OPTION
@@ -1677,6 +1731,10 @@ def fnLoadingOptions():
     # Loading Kiwoom Option
     if 'kiwoom_option' in CONFIG:
       KIWOOM_OPTION.update(CONFIG['kiwoom_option'])
+    
+    # Loading Buy Option
+    if 'buy_option' in CONFIG:
+      BUY_OPTION.update(CONFIG['buy_option'])
     
     # Loading Sell Option
     if 'sell_option' in CONFIG:
@@ -1739,6 +1797,7 @@ def fnCheckOptions():
   global SYSTEM_OPTION
   global KIWOOM_OPTION
   global CONNECTION_OPTION
+  global BUY_OPTION
   global SELL_OPTION
   global TELEGRAM_OPTION
 
@@ -1783,7 +1842,24 @@ def fnCheckOptions():
     else:
       LOGGER.info('\tMoney per Buy: %s' % (KIWOOM_OPTION['money_per_buy']))
     
-    LOGGER.info('\tLevel: %d' % (KIWOOM_OPTION['level']))
+    # Check Buy Option
+    LOGGER.info('Buy Option:')
+    LOGGER.info('\tBuy Level: %d' % (BUY_OPTION['buy_level']))
+    if 'buy_level_0_option' not in BUY_OPTION:
+      LOGGER.info('\tBUY LEVEL 0 OPTION IS NOT SETTING!')
+      res_check = False
+    else:
+      LOGGER.info('\tBUY LEVEL 0 OPTION: %s' % (BUY_OPTION['buy_level_0_option']))
+    if 'buy_level_1_option' not in BUY_OPTION:
+      LOGGER.info('\tBUY LEVEL 1 OPTION IS NOT SETTING!')
+      res_check = False
+    else:
+      LOGGER.info('\tBUY LEVEL 1 OPTION: %s' % (BUY_OPTION['buy_level_1_option']))
+    if 'buy_level_2_option' not in BUY_OPTION:
+      LOGGER.info('\tBUY LEVEL 2 OPTION IS NOT SETTING!')
+      res_check = False
+    else:
+      LOGGER.info('\tBUY LEVEL 2 OPTION: %s' % (BUY_OPTION['buy_level_2_option']))
     
     # Check Sell Option
     LOGGER.info('Sell Option:')
