@@ -729,7 +729,7 @@ class SellWorker(QThread):
     
     message = [ '<<< SELL LIST >>>' ]
     
-    unlisted_symbol_code = list(map(lambda x: x['symbol_code'][1:], TODAY_LIST['unlisted']))
+    unlisted_symbol_code = list(map(lambda x: x['symbol_code'][1:], TODAY_LIST['sell']))
     
     for sell_stock_info in TRADING_LIST['sell']:
       TRADER.trading_sell_list[sell_stock_info['symbol_code']] = {
@@ -745,7 +745,7 @@ class SellWorker(QThread):
     if len(TRADER.trading_sell_list.keys()) == 0:
       message.append('매도할 종목이 없습니다.')
       message.append('')
-      message.append('Sell Signal: %s개' % (fnCommify(len(TODAY_LIST['unlisted']))))
+      message.append('Sell Signal: %s개' % (fnCommify(len(TODAY_LIST['sell']))))
       message.append('보유주식수: %s개' % (fnCommify(len(ACCOUNT_INFO['my_stocks']))))
       
       fnSendMessage(message)
@@ -875,7 +875,7 @@ class BuyWorker(QThread):
       fnSendMessage(message)
     else:
       # 우선주 제거
-      new_list = list(filter(lambda x: x['symbol_code'][-1:] == '0', TODAY_LIST['new']))
+      new_list = list(filter(lambda x: x['symbol_code'][-1:] == '0', TODAY_LIST['buy']))
       # End of 우선주 제거
 
       for buy_stock_info in TRADING_LIST['buy']:
@@ -1010,13 +1010,13 @@ def fnSendConsensusInfo():
 
   message.append('<<< 매도 예정 종목 >>>')
   
-  if len(TODAY_LIST['unlisted']) == 0:
+  if len(TODAY_LIST['sell']) == 0:
     message.append('매도 종목 없음.')
 
-  for (i, info) in enumerate(TODAY_LIST['unlisted']):
+  for (i, info) in enumerate(TODAY_LIST['sell']):
     message.append('===== %d / %d =====' % (
       (i + 1),
-      len(TODAY_LIST['unlisted'])
+      len(TODAY_LIST['sell'])
     ))
     message.append('종목명: %s (%s, %s, %s위)' % (
       info['name'],
@@ -1064,11 +1064,11 @@ def fnSendConsensusInfo():
 
   message.append('<<< 매수 예정 종목 >>>')
 
-  if len(TODAY_LIST['new']) == 0:
+  if len(TODAY_LIST['buy']) == 0:
     message.append('매수 종목 없음.')
 
-  for (i, info) in enumerate(TODAY_LIST['new']):
-    message.append('===== %d / %d =====' % ((i + 1), len(TODAY_LIST['new'])))
+  for (i, info) in enumerate(TODAY_LIST['buy']):
+    message.append('===== %d / %d =====' % ((i + 1), len(TODAY_LIST['buy'])))
     message.append('종목명: %s (%s, %s, %s위)' % (
       info['name'],
       info['symbol_code'],
@@ -1349,7 +1349,7 @@ def fnCheckBuySellStocks():
   TRADING_LIST['buy'] = []
 
   # 우선주 제거
-  new_list = list(filter(lambda x: x['symbol_code'][-1:] == '0', TODAY_LIST['new']))
+  new_list = list(filter(lambda x: x['symbol_code'][-1:] == '0', TODAY_LIST['buy']))
   # End of 우선주 제거
 
   LOGGER.debug('NEW_LIST: %s' % (new_list))
@@ -1624,8 +1624,14 @@ def fnMain(argOptions, argArgs):
 
     TODAY_LIST = fnGetConsensusInfo()
 
-    test = fnGetAttackingBuyList(BUY_OPTION['buy_level'])
-    print(test)
+    TODAY_LIST['sell'] = TODAY_LIST['unlisted']
+
+    attack_buy_list = fnGetAttackingBuyList(BUY_OPTION['buy_level'])
+    TODAY_LIST['attacking_buy'] = attack_buy_list
+
+    TODAY_LIST['buy'] = TODAY_LIST['new']
+    TODAY_LIST['buy'] += attack_buy_list[1] if 1 in attack_buy_list else []
+    TODAY_LIST['buy'] += attack_buy_list[2] if 2 in attack_buy_list else []
 
     # CONSENSUS INFO
     fnSendConsensusInfo()
