@@ -1069,6 +1069,8 @@ def fnSendConsensusInfo():
 
   for (i, info) in enumerate(TODAY_LIST['buy']):
     message.append('===== %d / %d =====' % ((i + 1), len(TODAY_LIST['buy'])))
+    if 'buy_level' in info:
+      message.append('<< 공격적 매수 종목(Level: %d) >>' % (info['buy_level']))
     message.append('종목명: %s (%s, %s, %s위)' % (
       info['name'],
       info['symbol_code'],
@@ -1302,8 +1304,6 @@ def fnGetAttackingBuyList(argLevel=1):
 
     today = datetime.today().strftime("%Y-%m-%d")
 
-    
-
     for buy_level in range(1, argLevel + 1):
       if buy_level == 1:
         params = {
@@ -1322,6 +1322,7 @@ def fnGetAttackingBuyList(argLevel=1):
         try:
           res = fnGetData((url % (today)), params=params)
           data[buy_level] = res.json()['data']['rows']
+          list(map(lambda x: x.update({ 'buy_level': buy_level }), data[buy_level]))
           break
         except:
           LOGGER.error(res.text)
