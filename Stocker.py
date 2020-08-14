@@ -1074,7 +1074,8 @@ def fnSendConsensusInfo():
     message.append('종목명: %s (%s, %s, %s위)' % (
       info['name'],
       info['symbol_code'],
-      info['market'], fnCommify(info['market_rank'])
+      info['market'],
+      fnCommify(info['market_rank'])
     ))
     message.append('Signal Date: %s' % (
       info['consensus_date']
@@ -1124,7 +1125,18 @@ def fnSendMyStocksInfo():
     for (i, stock) in enumerate(ACCOUNT_INFO['my_stocks']):
       message.append('===== %d / %d =====' % ((i + 1), len(ACCOUNT_INFO['my_stocks'])))
       message.append('일자: %s' % (stock['date']))
-      message.append('종목명: %s (%s)' % (stock['name'], stock['symbol_code']))
+      if 'market' in stock:
+        message.append('종목명: %s (%s, %s, %s위)' % (
+          stock['name'],
+          stock['symbol_code'],
+          stock['market'],
+          fnCommify(stock['market_rank'])
+        ))
+      else:
+        message.append('종목명: %s (%s)' % (
+          stock['name'],
+          stock['symbol_code']
+        ))
       message.append('현재가: %s원' % (fnCommify(abs(stock['trade_price']))))
       message.append('매입가: %s원' % (fnCommify(stock['buy_price'])))
       message.append('매입금액: %s원' % (fnCommify(stock['buy_amount'])))
