@@ -476,7 +476,7 @@ class SysTrader(QObject):
     
     LOGGER.debug("주문/잔고: %s %s - %s - %s" % (sScrNo, sRQName, sTrCode, sMsg))
 
-    if sMsg.startswith('[505217]') or sMsg.startswith('[571489]'):
+    if sMsg.startswith('[505217]') or sMsg.startswith('[571489]') or ' 장종료 ' in sMsg:
       if sTrCode.startswith('KOA_NORMAL_BUY_'):
         WORKER_TERMINATE_STATUS['buy'] = True
         WORKER_TERMINATE_STATUS['buy_msg'] = sMsg
