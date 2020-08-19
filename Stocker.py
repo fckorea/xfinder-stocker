@@ -1404,6 +1404,7 @@ def fnCheckBuySellStocks():
           'quantity': buy_quantity
         })
         break
+      time.sleep(0.5)
     
   LOGGER.debug('TRADING_LIST[\'buy\']: %s' % (TRADING_LIST['buy']))
   LOGGER.debug('TRADING_LIST[\'sell\']: %s' % (TRADING_LIST['sell']))
