@@ -784,6 +784,7 @@ class SellWorker(QThread):
 
       for sell_stock_info in TRADING_LIST['sell']:
         TRADER.kiwoom_SendOrder("TRADER_SELL", "7777", ACCOUNT_INFO['account_number'], 2, sell_stock_info['symbol_code'], sell_stock_info['quantity'], 0, '03', '')
+        time.sleep(0.3)
     
     sell_wait_count = 0
 
@@ -914,6 +915,7 @@ class BuyWorker(QThread):
 
         for buy_stock_info in TRADING_LIST['buy']:
           TRADER.kiwoom_SendOrder("TRADER_NEW_BUY", "1111", ACCOUNT_INFO['account_number'], 1, buy_stock_info['symbol_code'], buy_stock_info['quantity'], 0, '03', '')
+          time.sleep(0.3)
     
     buy_wait_count = 0
 
