@@ -1092,9 +1092,16 @@ def fnSendConsensusInfo():
       fnCommify(info['trade_price'])
     ))
     message.append('')
-    message.append('최근가 대비: %.2f%%' % (
-      (((info['trade_price'] - info['target_price']) / info['target_price']) * 100)
-    ))
+    if 'target_price' not in info or info['target_price'] is None:
+      LOGGER.error('info target price Error')
+      message.append('최근가 대비: -')
+    elif 'trade_price' not in info or info['trade_price'] is None:
+      LOGGER.error('info trade price Error')
+      message.append('최근가 대비: -')
+    else:
+      message.append('최근가 대비: %.2f%%' % (
+        (((info['trade_price'] - info['target_price']) / info['target_price']) * 100)
+      ))
     message.append('==========')
     message.append('')
   
