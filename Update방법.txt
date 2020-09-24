@@ -17,8 +17,12 @@
   2) 로그인 정보 입력 후 로그인
   3) 트레이아이콘에 키움API 아이콘 오른쪽 클릭
   4) "계좌비밀번호 저장" 선택
-  5) 계좌 비밀번호 입력 후 등록 버튼 클릭
+  5) 계좌 비밀번호 입력 후 "등록" 버튼 클릭
   6) "AUTO" 체크 설정
   7) 실행한 Update.bat 종료
+
+4. AUTO Login 확인
+  1) Update.bat 실행
+  2) 사용자 정보 입력 없이 트레이아이콘에 키움API 아이콘이 실행됐는지 확인
 
 참고 URL: https://www.youtube.com/watch?v=XKjDIVVVq2U
