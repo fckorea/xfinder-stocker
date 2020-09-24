@@ -1,0 +1,24 @@
+1. AUTO Login 해제
+  1) Update.bat 실행
+  2) 트레이아이콘에 키움API 아이콘 오른쪽 클릭
+  3) "계좌비밀번호 저장" 선택
+  4) "AUTO" 체크 해제
+  5) Update.bat 종료
+
+2. 업데이트
+  1) Update.bat 실행
+  2) 로그인 정보 입력 후 로그인
+  3) 버전 처리 메시지 발생하면 실행한 Update.bat 종료
+  4) 버전 처리 메시지 창 "확인" 클릭
+  5) 업그레이드 확인 메시지 창 발생 시 "확인" 클릭
+
+3. AUTO Login 설정
+  1) Update.bat 실행
+  2) 로그인 정보 입력 후 로그인
+  3) 트레이아이콘에 키움API 아이콘 오른쪽 클릭
+  4) "계좌비밀번호 저장" 선택
+  5) 계좌 비밀번호 입력 후 등록 버튼 클릭
+  6) "AUTO" 체크 설정
+  7) 실행한 Update.bat 종료
+
+참고 URL: https://www.youtube.com/watch?v=XKjDIVVVq2U
