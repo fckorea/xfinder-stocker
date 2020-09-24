@@ -1427,9 +1427,9 @@ def fnCheckBuySellStocks():
   unlisted_symbol_code = list(map(lambda x: x['symbol_code'][1:], TODAY_LIST['unlisted']))
   
   if 'minimum_profit_cut_percentage' in SELL_OPTION:
-    sell_unlisted = list(filter(lambda x: x['symbol_code'] in unlisted_symbol_code and x['quantity'] > 0 and (x['profit_rate'] * 100) >= SELL_OPTION['minimum_profit_cut_percentage'], ACCOUNT_INFO['my_stocks']))
+    sell_unlisted = list(map(lambda x: x['symbol_code'], list(filter(lambda x: x['symbol_code'] in unlisted_symbol_code and x['quantity'] > 0 and (x['profit_rate'] * 100) >= SELL_OPTION['minimum_profit_cut_percentage'], ACCOUNT_INFO['my_stocks']))))
   else:
-    sell_unlisted = list(filter(lambda x: x['symbol_code'] in unlisted_symbol_code and x['quantity'] > 0, ACCOUNT_INFO['my_stocks']))
+    sell_unlisted = list(map(lambda x: x['symbol_code'], list(filter(lambda x: x['symbol_code'] in unlisted_symbol_code and x['quantity'] > 0, ACCOUNT_INFO['my_stocks']))))
 
   sell_unlisted = list(filter(lambda x: x not in SELL_EXCEPTION, sell_unlisted))
 
