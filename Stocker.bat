@@ -1,0 +1,1 @@
+python Stocker.py -v
