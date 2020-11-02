@@ -1245,7 +1245,7 @@ def fnGetConsensusLatestInfo():
     for try_count in range(CONNECTION_OPTION['try_count']):
       try:
         res = fnGetData(url)
-        data = res.json()['data']['date']
+        data = res.json()['data']
         break
       except:
         LOGGER.error(res.text)
