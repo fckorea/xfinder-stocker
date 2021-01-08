@@ -1525,21 +1525,10 @@ def fnCheckBuySellStocks():
   LOGGER.debug('TRADING_LIST[\'buy\']: %s' % (TRADING_LIST['buy']))
   LOGGER.debug('TRADING_LIST[\'sell\']: %s' % (TRADING_LIST['sell']))
 
-<<<<<<< HEAD
   # Setting buy list
   if len(TRADING_LIST['buy']) > (len(TRADING_LIST['sell']) + available_buy_count):
     TRADING_LIST['buy'] = TRADING_LIST['buy'][:(len(TRADING_LIST['sell']) + available_buy_count)]
     LOGGER.debug('CHAGE TRADING_LIST[\'buy\']: %s' % (TRADING_LIST['buy']))
-=======
-  # Available Count
-  define_available_buy_count = available_buy_count + len(TRADING_LIST['sell'])
-  LOGGER.debug('define_available_buy_count: %d' % (define_available_buy_count))
-  TRADING_LIST['available_buy_count'] = define_available_buy_count
-
-  # CUT buy list
-  # TRADING_LIST['buy'] = TRADING_LIST['buy'][:define_available_buy_count]
-  # LOGGER.debug('CUT TRADING_LIST[\'buy\']: %s' % (TRADING_LIST['buy']))
->>>>>>> c04cc76fb14d0785772ebc68a64292edc74481eb
 
 #=============================== Util Functions ===============================#
 def fnCommify(argValue, argPoint=2):
