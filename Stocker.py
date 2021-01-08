@@ -868,7 +868,7 @@ class BuyWorker(QThread):
 
     message = [ '<<< BUY LIST >>>' ]
 
-    if ACCOUNT_INFO['available_money'] < KIWOOM_OPTION['money_per_buy']:
+    if TRADING_LIST['available_buy_count'] == 0 and ACCOUNT_INFO['available_money'] < KIWOOM_OPTION['money_per_buy']:
       message.append('주문 가능 금액이 설정된 최소구매금액보다 적어 구매를 할 수 없습니다.')
       message.append('')
       message.append('주문가능금액: %s원' % (fnCommify(ACCOUNT_INFO['available_money'])))
@@ -879,7 +879,7 @@ class BuyWorker(QThread):
       new_list = list(filter(lambda x: x['symbol_code'][-1:] == '0', TODAY_LIST['buy']))
       # End of 우선주 제거
 
-      for buy_stock_info in TRADING_LIST['buy']:
+      for buy_stock_info in TRADING_LIST['buy'][:TRADING_LIST['available_buy_count']]:
         TRADER.trading_buy_list[buy_stock_info['symbol_code']] = {
           'name': buy_stock_info['name'],
           'trade_price': abs(buy_stock_info['trade_price']),
@@ -1525,10 +1525,21 @@ def fnCheckBuySellStocks():
   LOGGER.debug('TRADING_LIST[\'buy\']: %s' % (TRADING_LIST['buy']))
   LOGGER.debug('TRADING_LIST[\'sell\']: %s' % (TRADING_LIST['sell']))
 
+<<<<<<< HEAD
   # Setting buy list
   if len(TRADING_LIST['buy']) > (len(TRADING_LIST['sell']) + available_buy_count):
     TRADING_LIST['buy'] = TRADING_LIST['buy'][:(len(TRADING_LIST['sell']) + available_buy_count)]
     LOGGER.debug('CHAGE TRADING_LIST[\'buy\']: %s' % (TRADING_LIST['buy']))
+=======
+  # Available Count
+  define_available_buy_count = available_buy_count + len(TRADING_LIST['sell'])
+  LOGGER.debug('define_available_buy_count: %d' % (define_available_buy_count))
+  TRADING_LIST['available_buy_count'] = define_available_buy_count
+
+  # CUT buy list
+  # TRADING_LIST['buy'] = TRADING_LIST['buy'][:define_available_buy_count]
+  # LOGGER.debug('CUT TRADING_LIST[\'buy\']: %s' % (TRADING_LIST['buy']))
+>>>>>>> c04cc76fb14d0785772ebc68a64292edc74481eb
 
 #=============================== Util Functions ===============================#
 def fnCommify(argValue, argPoint=2):
