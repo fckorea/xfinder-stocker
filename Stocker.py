@@ -1529,6 +1529,8 @@ def fnCheckBuySellStocks():
   if len(TRADING_LIST['buy']) > (len(TRADING_LIST['sell']) + available_buy_count):
     TRADING_LIST['buy'] = TRADING_LIST['buy'][:(len(TRADING_LIST['sell']) + available_buy_count)]
     LOGGER.debug('CHANGE TRADING_LIST[\'buy\']: %s' % (TRADING_LIST['buy']))
+  
+  TRADING_LIST['available_buy_count'] = len(TRADING_LIST['sell']) + available_buy_count
 
 #=============================== Util Functions ===============================#
 def fnCommify(argValue, argPoint=2):
