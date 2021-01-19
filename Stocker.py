@@ -1525,12 +1525,17 @@ def fnCheckBuySellStocks():
   LOGGER.debug('TRADING_LIST[\'buy\']: %s' % (TRADING_LIST['buy']))
   LOGGER.debug('TRADING_LIST[\'sell\']: %s' % (TRADING_LIST['sell']))
 
+  sell_to_buy_count = 0
+
+  if len(TRADING_LIST['sell']) != 0:
+    sell_to_buy_count = math.floor(reduce(lambda acc, cur: acc + (cur['trade_price'] * cur['quantity']), TRADING_LIST['sell']) / KIWOOM_OPTION['money_per_buy'])
+
   # Setting buy list
-  if len(TRADING_LIST['buy']) > (len(TRADING_LIST['sell']) + available_buy_count):
-    TRADING_LIST['buy'] = TRADING_LIST['buy'][:(len(TRADING_LIST['sell']) + available_buy_count)]
+  if len(TRADING_LIST['buy']) > (sell_to_buy_count + available_buy_count):
+    TRADING_LIST['buy'] = TRADING_LIST['buy'][:(sell_to_buy_count + available_buy_count)]
     LOGGER.debug('CHANGE TRADING_LIST[\'buy\']: %s' % (TRADING_LIST['buy']))
   
-  TRADING_LIST['available_buy_count'] = len(TRADING_LIST['sell']) + available_buy_count
+  TRADING_LIST['available_buy_count'] = sell_to_buy_count + available_buy_count
 
 #=============================== Util Functions ===============================#
 def fnCommify(argValue, argPoint=2):
