@@ -915,6 +915,7 @@ class BuyWorker(QThread):
 
         for buy_stock_info in TRADING_LIST['buy']:
           TRADER.kiwoom_SendOrder("TRADER_NEW_BUY", "1111", ACCOUNT_INFO['account_number'], 1, buy_stock_info['symbol_code'], buy_stock_info['quantity'], 0, '03', '')
+          LOGGER.debug('Buy send order %s(%s)' % (buy_stock_info['name'], buy_stock_info['symbol_code']))
           time.sleep(0.3)
     
     buy_wait_count = 0
@@ -1373,6 +1374,18 @@ def fnCheckBuySellStocks():
   # 우선주 제거
   new_list = list(filter(lambda x: x['symbol_code'][-1:] == '0', TODAY_LIST['buy']))
   # End of 우선주 제거
+
+  # 중복 종목 제거
+  new_list_symbolcode = []
+  buy_list = []
+
+  for new_stock in new_list:
+    if new_stock['symbol_code'] not in new_list_symbolcode:
+      buy_list.append(new_stock)
+      new_list_symbolcode = new_stock['symbol_code']
+  
+  new_list = buy_list
+  # End of 중복 종목 제거
 
   LOGGER.debug('NEW_LIST: %s' % (new_list))
 
