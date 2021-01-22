@@ -1402,6 +1402,7 @@ def fnCheckBuySellStocks():
     if check_buy:
       for try_count in range(CONNECTION_OPTION['try_count']):
         TRADER.kiwoom_TR_OPT10001_주식기본정보요청(symbol_code)
+        time.sleep(0.1)
         buy_stock_info = TRADER.result['data']
 
         LOGGER.debug(buy_stock_info)
@@ -1541,7 +1542,7 @@ def fnCheckBuySellStocks():
   sell_to_buy_count = 0
 
   if len(TRADING_LIST['sell']) != 0:
-    sell_to_buy_count = math.floor(reduce(lambda acc, cur: acc + (cur['trade_price'] * cur['quantity']), TRADING_LIST['sell']) / KIWOOM_OPTION['money_per_buy'])
+    sell_to_buy_count = math.floor(reduce(lambda acc, cur: acc + (cur['trade_price'] * cur['quantity']), TRADING_LIST['sell'], 0) / KIWOOM_OPTION['money_per_buy'])
 
   # Setting buy list
   if len(TRADING_LIST['buy']) > (sell_to_buy_count + available_buy_count):
