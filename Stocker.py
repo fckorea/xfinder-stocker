@@ -1550,6 +1550,7 @@ def fnCheckBuySellStocks():
     LOGGER.debug('CHANGE TRADING_LIST[\'buy\']: %s' % (TRADING_LIST['buy']))
   
   TRADING_LIST['available_buy_count'] = sell_to_buy_count + available_buy_count
+  LOGGER.debug('TRADING_LIST[\'available_buy_count\'] = %d' % (TRADING_LIST['available_buy_count']))
 
 #=============================== Util Functions ===============================#
 def fnCommify(argValue, argPoint=2):
