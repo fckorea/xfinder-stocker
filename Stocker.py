@@ -1543,6 +1543,8 @@ def fnCheckBuySellStocks():
 
   if len(TRADING_LIST['sell']) != 0:
     sell_to_buy_count = math.floor(reduce(lambda acc, cur: acc + (cur['trade_price'] * cur['quantity']), TRADING_LIST['sell'], 0) / KIWOOM_OPTION['money_per_buy'])
+  
+  LOGGER.debug('sell_to_buy_count = %d' % (sell_to_buy_count))
 
   # Setting buy list
   if len(TRADING_LIST['buy']) > (sell_to_buy_count + available_buy_count):
