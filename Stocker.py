@@ -306,7 +306,6 @@ class SysTrader(QObject):
     :return:
     """
     global LOGGER
-    global TERMINATE
 
     LOGGER.info(sRQName)
 
@@ -1676,13 +1675,25 @@ def fnMain(argOptions, argArgs):
 
     TODAY_LIST['sell'] = TODAY_LIST['unlisted']
 
-    attack_buy_list = fnGetAttackingBuyList(BUY_OPTION['buy_level'])
-    TODAY_LIST['attacking_buy'] = attack_buy_list
+    # attack_buy_list = fnGetAttackingBuyList(BUY_OPTION['buy_level'])
 
-    TODAY_LIST['buy'] = TODAY_LIST['new']
-    TODAY_LIST['buy'] += attack_buy_list[1] if 1 in attack_buy_list else []
-    TODAY_LIST['buy'] += attack_buy_list[2] if 2 in attack_buy_list else []
+    # TODAY_LIST['buy'] = TODAY_LIST['new']
+    # TODAY_LIST['buy'] += attack_buy_list[1] if 1 in attack_buy_list else []
+    # TODAY_LIST['buy'] += attack_buy_list[2] if 2 in attack_buy_list else []
 
+    attack_buy_list = fnGetAttackingBuyList(2)
+
+    TODAY_LIST['buy'] = []
+
+    # Set buy list
+    for buy_level in BUY_OPTION['buy_level']:
+      if buy_level == 0:
+        TODAY_LIST['buy'] += TODAY_LIST['new']
+      elif buy_level == 1:
+        attack_buy_list[1] if 1 in attack_buy_list else []
+      elif buy_level == 2:
+        attack_buy_list[2] if 2 in attack_buy_list else []
+    
     # CONSENSUS INFO
     fnSendConsensusInfo()
     # End of CONSENSUS INFO
