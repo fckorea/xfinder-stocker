@@ -1692,9 +1692,9 @@ def fnMain(argOptions, argArgs):
       if buy_level == 0:
         TODAY_LIST['buy'] += TODAY_LIST['new']
       elif buy_level == 1:
-        attack_buy_list[1] if 1 in attack_buy_list else []
+        TODAY_LIST['buy'] += attack_buy_list[1] if 1 in attack_buy_list else []
       elif buy_level == 2:
-        attack_buy_list[2] if 2 in attack_buy_list else []
+        TODAY_LIST['buy'] += attack_buy_list[2] if 2 in attack_buy_list else []
     
     # CONSENSUS INFO
     fnSendConsensusInfo()
@@ -1913,7 +1913,7 @@ def fnCheckOptions():
     
     # Check Buy Option
     LOGGER.info('Buy Option:')
-    LOGGER.info('\tBuy Level: %d' % (BUY_OPTION['buy_level']))
+    LOGGER.info('\tBuy Level: %s' % (BUY_OPTION['buy_level']))
     if 'buy_level_0_option' not in BUY_OPTION:
       LOGGER.info('\tBUY LEVEL 0 OPTION IS NOT SETTING!')
       res_check = False
