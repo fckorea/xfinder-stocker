@@ -1058,9 +1058,14 @@ def fnSendConsensusInfo():
       fnCommify(info['trade_price'] - info['first_date_trade_price'])
     ))
     message.append('==========')
-    message.append('')
+    if (i + 1) % 5 == 0:
+      fnSendMessage(message)
+      message = []
+    else:
+      message.append('')
 
-  fnSendMessage(message)
+  if len(message) > 0:
+    fnSendMessage(message)
 
   message = []
 
@@ -1103,9 +1108,15 @@ def fnSendConsensusInfo():
         (((info['trade_price'] - info['target_price']) / info['target_price']) * 100)
       ))
     message.append('==========')
-    message.append('')
+
+    if (i + 1) % 5 == 0:
+      fnSendMessage(message)
+      message = []
+    else:
+      message.append('')
   
-  fnSendMessage(message)
+  if len(message) > 0:
+    fnSendMessage(message)
 
 def fnSendAccountInfo():
   fnSendAccountMoney()
@@ -1152,13 +1163,15 @@ def fnSendMyStocksInfo():
       message.append('보유수량: %s주' % (fnCommify(stock['quantity'])))
       message.append('평가금액: %s원' % (fnCommify((abs(stock['trade_price'])*stock['quantity']))))
       message.append('현재수익: %s원 (%s%%)' % (fnCommify((abs(stock['trade_price'])*stock['quantity']) - (stock['buy_price']*stock['quantity'])), fnCommify((((abs(stock['trade_price'])*stock['quantity']) - (stock['buy_price']*stock['quantity'])) / (stock['buy_price']*stock['quantity']))*100)))
+
       if (i + 1) % 5 == 0:
         fnSendMessage(message)
         message = []
       else:
         message.append('')
   
-  fnSendMessage(message)
+  if len(message) > 0:
+    fnSendMessage(message)
 
 #=============================== Request Functions ===============================#
 def fnGetData(argURL, params=None, headers=None, argTryCount=5):
@@ -1419,12 +1432,13 @@ def fnCheckBuySellStocks():
       
         buy_quantity = TRADER.getQuantity(abs(buy_stock_info['시가']), KIWOOM_OPTION['money_per_buy'])
 
-        TRADING_LIST['buy'].append({
-          'symbol_code': buy_stock_info['종목코드'],
-          'name': buy_stock_info['종목명'],
-          'trade_price': abs(buy_stock_info['시가']),
-          'quantity': buy_quantity
-        })
+        if buy_quantity > 0:
+          TRADING_LIST['buy'].append({
+            'symbol_code': buy_stock_info['종목코드'],
+            'name': buy_stock_info['종목명'],
+            'trade_price': abs(buy_stock_info['시가']),
+            'quantity': buy_quantity
+          })
         break
       time.sleep(0.5)
     
