@@ -455,7 +455,7 @@ def fnLoadingOptions():
     # Loading Sell Option
     if 'sell_option' in CONFIG:
       SELL_OPTION.update(CONFIG['sell_option'])
-      SELL_OPTION['stats']['percentage'] = fnGetProfitCutStats()
+    SELL_OPTION['stats']['percentage'] = fnGetProfitCutStats()
           
     # Loading Telegram Option
     if 'telegram_option' in CONFIG:
@@ -559,8 +559,9 @@ def fnCheckOptions():
       res_check = False
     elif SELL_OPTION['stats']['enabled'] is True and 'days' in SELL_OPTION['stats']:
       LOGGER.info('\tProfit Cut by Stats Days: %d' % (SELL_OPTION['stats']['days']))
-      LOGGER.info('\t\tKOSPI: %.2f%%' % (SELL_OPTION['stats']['percentage']['KOSPI']['avg_profit_rate']))
-      LOGGER.info('\t\tKOSDAQ: %.2f%%' % (SELL_OPTION['stats']['percentage']['KOSDAQ']['avg_profit_rate']))
+      if 'percentage' in SELL_OPTION['stats']:
+        LOGGER.info('\t\tKOSPI: %.2f%%' % (SELL_OPTION['stats']['percentage']['KOSPI']['avg_profit_rate']))
+        LOGGER.info('\t\tKOSDAQ: %.2f%%' % (SELL_OPTION['stats']['percentage']['KOSDAQ']['avg_profit_rate']))
     
     # Target Price Cut
     LOGGER.info('\tTarget Price Cut: %s' % (SELL_OPTION['target_price']['enabled']))
