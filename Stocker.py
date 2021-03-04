@@ -18,6 +18,7 @@ import json
 import traceback
 import time
 from datetime import datetime
+from datetime import timedelta
 import math
 from functools import reduce
 import re
@@ -28,6 +29,12 @@ from PyQt5.QtCore import QObject
 from PyQt5.QtCore import QThread
 from PyQt5.QtCore import QEventLoop
 from PyQt5.QtWidgets import QApplication
+
+from koapy import KiwoomOpenApiPlusEntrypoint
+import pandas as pd
+from pandas import Timestamp
+
+from trading_calendars import get_calendar
 
 PROG_NAME = 'Stocker'
 PROG_VER = '2.0'
@@ -86,161 +93,469 @@ TELEGRAM_OPTION = {
   'enabled': False
 }
 
-
-ACCOUNT_INFO = {
-  'account_number': None,
-  'available_money': 0,
-  'my_stocks': []
+WORKER = {
+  'buy': None,
+  'sell': None
 }
 
+# Today's Signal origin
+SIGNAL_LIST = {
+  'buy': [],
+  'sell': []
+}
+# Today's buy list (remove duplicate, holding stocks)
+BUY_TRADE_LIST = {
+  'start_idx': 0,
+  'list': []
+}
+# Today's trading list (from OrderWorker)
+TODAY_TRADE_LIST = {
+  'buy': [],
+  'sell': []
+}
+
+KOAPY_TRADER = None
+
+KRX_CALENDAR = get_calendar('XKRX')
+
 #=============================== Worker Class ===============================#
+class OrderWorker(QThread):
+  orderInfo = None
+
+  def __init__(self, argOrderInfo, parent=None):
+      super().__init__(parent=parent)
+      # request_name, screen_no, account_no, order_type, code, quantity, price, quote_type, original_order_no
+      # [{
+      #   'order': {
+      #     'req_name': 'STOCKER_BUY_ORDER',
+      #     'account_no': account_no,
+      #     'order_type': 1,
+      #     'symbol_code': '005930',
+      #     'quantity': 2,
+      #     'price': 0,
+      #     'quote_type': '03',
+      #     'original_order_no': ''
+      #   },
+      #   'info': {
+      #     'symbol_code': '005930',
+      #     'name': '삼성전자',
+      #     'market': 'KOSPI',
+      #     'market_rank': 1,
+      #     'level': 0
+      #   }
+      # }]
+      self.orderInfo = argOrderInfo
+
+  def run(self):
+    global LOGGER
+    global TODAY_TRADE_LIST
+    global KOAPY_TRADER
+
+    LOGGER.debug(self.orderInfo['order'])
+
+    for event in KOAPY_TRADER.OrderCall(self.orderInfo['order']['req_name'], '7777', self.orderInfo['order']['account_no'], self.orderInfo['order']['order_type'], self.orderInfo['order']['symbol_code'], self.orderInfo['order']['quantity'], self.orderInfo['order']['price'], self.orderInfo['order']['quote_type'], self.orderInfo['order']['original_order_no']):
+      res = { 'name': event.name }
+      for name, value in zip(event.single_data.names, event.single_data.values):
+        res[name] = value
+      
+      LOGGER.debug('=' * 20)
+      LOGGER.debug(self.orderInfo['info']['name'])
+      LOGGER.debug(res)
+      if res['name'] == 'OnReceiveChejanData':
+        if '주문상태' in res:
+          LOGGER.debug('%s: %s, %s, %s' % (res['주문상태'], res['종목명'], res['체결량'] if '체결량' in res else 'None', res['미체결수량'] if '미체결수량' in res else 'None'))
+        else:
+          LOGGER.debug('Maybe done!')
+          LOGGER.debug('=' * 20)
+          break
+      LOGGER.debug('=' * 20)
+    
+    TODAY_TRADE_LIST['buy' if self.orderInfo['order']['order_type'] == 1 else 'sell'].append(self.orderInfo)
+    LOGGER.debug('Done %s %s' % ('Buy' if self.orderInfo['order']['order_type'] == 1 else 'Sell', self.orderInfo['info']['name']))
+
 class SellWorker(QThread):
   def run(self):
     global LOGGER
     global CONNECTION_OPTION
+    global KIWOOM_OPTION
 
-    LOGGER.info('<<<<< CHECK SELL >>>>>')
+    while True:
+      # if fnCheckOpenKRX():
+      if True:  # TEST
+        LOGGER.info('<<<<< CHECK SELL >>>>>')
+        holding_stocks = fnGetHoldingStocks(KIWOOM_OPTION['account_number'])
+        holding_stocks['Market'] = None
+        holding_stocks['MarketRank'] = None
+        holding_stocks['TargetPrice'] = None
+        time.sleep(0.1)
+        for more_info in fnGetMoreInfoMyStock(holding_stocks['종목코드']):
+          idx = holding_stocks[(holding_stocks['종목코드'] == more_info['symbol_code'])].index
+          if len(idx) == 1:
+            idx = idx[0]
+            holding_stocks.loc[idx, 'Market'] = more_info['market']
+            holding_stocks.loc[idx, 'MarketRank'] = more_info['market_rank']
+            holding_stocks.loc[idx, 'TargetPrice'] = more_info['target_price']
+        
+        time.sleep(0.1)
+        # TEST
+        holding_stocks.loc[2, 'TargetPrice'] = 50000
+        SELL_OPTION['stats']['percentage']['KOSDAQ']['avg_profit_rate'] = 0.01
+        # End of TEST
+        
+        print(holding_stocks.to_markdown())
+        sell_list = fnCheckSellStocks(holding_stocks)
+        print(sell_list)
+
+        LOGGER.info('<<<<< SELL TRADING >>>>>')
+        LOGGER.info('Sell %d stocks' % (len(sell_list)))
+
+        for idx in sell_list:
+          stocks = sell_list[idx]
+          print(idx)
+          print(stocks)
+          print(type(stocks['info']['종목코드']), stocks['info']['종목코드'])
+          print(type(stocks['info']['매매가능수량']), stocks['info']['매매가능수량'])
+          # request_name = '삼성전자 1주 시장가 신규 매도' # 사용자 구분명, 구분가능한 임의의 문자열
+          # screen_no = '0001'                           # 화면번호
+          # account_no = first_account_no                # 계좌번호 10자리, 여기서는 계좌번호 목록에서 첫번째로 발견한 계좌번호로 매수처리
+          # order_type = 2         # 주문유형, 2 : 신규매도
+          # code = samsung_code    # 종목코드, 앞의 삼성전자 종목코드
+          # quantity = 1           # 주문수량, 1주 매도
+          # price = 0              # 주문가격, 시장가 매도는 가격설정 의미없음
+          # quote_type = '03'      # 거래구분, 03 : 시장가
+          # original_order_no = '' # 원주문번호, 주문 정정/취소 등에서 사용
+          # context.OrderCall(request_name, screen_no, account_no, order_type, code, quantity, price, quote_type, original_order_no)
+          for event in KOAPY_TRADER.OrderCall('STOCKER_SELL_ORDER', '7777', KIWOOM_OPTION['account_number'], 2, stocks['info']['종목코드'], stocks['info']['매매가능수량'], 0, '03', ''):
+            LOGGER.debug(event)
+
+        # if STOCKER_OPTION['mode'] == 1:
+        #   break
+        break
+      else:
+        LOGGER.info('KRX closed!')
+        LOGGER.info('SELL WORKER TERMINATE')
+        time.sleep(1)
+        break
+      time.sleep(1)
     
+    return
 
 class BuyWorker(QThread):
   def run(self):
     global LOGGER
-    global KIWOOM_OPTION
+    global STOCKER_OPTION
     global CONNECTION_OPTION
-    global ACCOUNT_INFO
-    global TODAY_LIST
-    global TRADING_LIST
-    global TRADER
-    global WORKER_TERMINATE_STATUS
-    global TERMINATE
+    global KIWOOM_OPTION
+    global BUY_TRADE_LIST
+    global WORKER
+    global KOAPY_TRADER
 
+    if STOCKER_OPTION['mode'] == 1:
+      LOGGER.info('Mode: 1 day 1 trading')
+      LOGGER.info('Wait Sell Worker Terminate')
+      while True:
+        if WORKER['sell'].isRunning() is False:
+          break
+        time.sleep(1)
+    
     while True:
-      if WORKER_TERMINATE_STATUS['sell']:
+      # if fnCheckOpenKRX():
+      if True:  # TEST
+        LOGGER.info('<<<<< CHECK BUY >>>>>')
+
+        buy_list = fnCheckBuyStocks()
+
+        LOGGER.debug('Buy list (%d)' % (len(buy_list)))
+        LOGGER.debug(buy_list)
+
+        for stocks in buy_list:
+          trade_price = int(KOAPY_TRADER.GetStockBasicInfoAsDict(stocks['symbol_code'])['현재가'])
+          quantity = fnGetQuantity(trade_price, KIWOOM_OPTION['money_per_buy'])
+          LOGGER.debug('%s(%s): %s * %s = %s' % (stocks['name'], stocks['symbol_code'], fnCommify(trade_price), fnCommify(quantity), fnCommify(trade_price * quantity)))
+
+          order_info = {
+            'order': {
+              'req_name': 'STOCKER_BUY_ORDER',
+              'account_no': KIWOOM_OPTION['account_number'],
+              'order_type': 1,
+              'symbol_code': stocks['symbol_code'][1:] if stocks['symbol_code'][0] == 'A' else stocks['symbol_code'],
+              'quantity': quantity,
+              'price': 0,
+              'quote_type': '03',
+              'original_order_no': ''
+            },
+            'info': stocks
+          }
+
+          th = OrderWorker(stocks)
+          th.start()
+
+        # if STOCKER_OPTION['mode'] == 1:
+        #   break
+
+        if BUY_TRADE_LIST['start_idx'] >= len(BUY_TRADE_LIST['list']):
+          LOGGER.info('Done. Buy Trading today')
+          break
+      else:
+        LOGGER.info('KRX closed!')
+        LOGGER.info('SELL WORKER TERMINATE')
+        time.sleep(1)
         break
       time.sleep(1)
-    
-    LOGGER.info('<<<<< CHECK BUY >>>>>')
 
-    message = [ '<<< BUY LIST >>>' ]
+#=============================== Buy Sell Util Functions ===============================#
+def fnCheckSellStocks(argHoldingStocks):
+  global LOGGER
+  global SELL_OPTION
 
-    if TRADING_LIST['available_buy_count'] == 0 and ACCOUNT_INFO['available_money'] < KIWOOM_OPTION['money_per_buy']:
-      message.append('주문 가능 금액이 설정된 최소구매금액보다 적어 구매를 할 수 없습니다.')
-      message.append('')
-      message.append('주문가능금액: %s원' % (fnCommify(ACCOUNT_INFO['available_money'])))
-      message.append('최소구매금액: %s원' % (fnCommify(KIWOOM_OPTION['money_per_buy'])))
-      fnSendMessage(message)
-    else:
-      # 우선주 제거
-      new_list = list(filter(lambda x: x['symbol_code'][-1:] == '0', TODAY_LIST['buy']))
-      # End of 우선주 제거
+  sell_list = {
+    # INDEX: {
+    #   INFO: {}
+    #   REASON: []
+    # }
+  }
 
-      for buy_stock_info in TRADING_LIST['buy'][:TRADING_LIST['available_buy_count']]:
-        TRADER.trading_buy_list[buy_stock_info['symbol_code']] = {
-          'name': buy_stock_info['name'],
-          'trade_price': abs(buy_stock_info['trade_price']),
-          'quantity': buy_stock_info['quantity']
-        }
-      
-      if len(TRADER.trading_buy_list.keys()) == 0:
-        message.append('매수할 종목이 없습니다.')
-        message.append('')
-        message.append('Buy Signal: %s개' % (fnCommify(len(new_list))))
-        message.append('보유주식수: %s개' % (fnCommify(len(ACCOUNT_INFO['my_stocks']))))
-        fnSendMessage(message)
-      else:
-        predict_sum = 0
+  LOGGER.debug('fnCheckSellStocks')
 
-        for (i, symbol_code) in enumerate(TRADER.trading_buy_list):
-          message.append('===== %d / %d =====' % ((i + 1), len(TRADER.trading_buy_list.keys())))
-          message.append('종목명: %s (%s)' % (TRADER.trading_buy_list[symbol_code]['name'], symbol_code))
-          message.append('시가: %s' % (fnCommify(TRADER.trading_buy_list[symbol_code]['trade_price'])))
-          message.append('주문수량: %s주 (시가기준)' % (fnCommify(TRADER.trading_buy_list[symbol_code]['quantity'])))
-          message.append('예상주문금액: %s원' % (fnCommify(TRADER.trading_buy_list[symbol_code]['trade_price']*TRADER.trading_buy_list[symbol_code]['quantity'])))
-          message.append('')
-          predict_sum += TRADER.trading_buy_list[symbol_code]['trade_price']*TRADER.trading_buy_list[symbol_code]['quantity']
-        message.append('')
-        message.append('* 우선주 제외')
-        fnSendMessage(message)
+  # Notice Minimum Profit Cut
+  LOGGER.info('Check Static Profit Cut: %.2f%%' % (SELL_OPTION['minimum_percentage'] * 100))
 
-        TRADER.trading_total['buy'] = {
-          'sum': 0,
-          'stock_count': len(TRADER.trading_buy_list.keys()),
-          'predict_sum': predict_sum
-        }
+  # Check Static Profit Cut
+  LOGGER.info('Check Static Profit Cut: %s (>=%.2f%%)' % (SELL_OPTION['static']['enabled'], SELL_OPTION['static']['percentage'] * 100))
+  if SELL_OPTION['static']['enabled']:
+    for idx, data in argHoldingStocks.iterrows():
+      if data['수익률'] >= SELL_OPTION['static']['percentage']:
+        LOGGER.info('%s is greater than static percentage(%.2f%%>=%.2f%%)' % (data['종목명'], data['수익률'] * 100, SELL_OPTION['static']['percentage'] * 100))
+        if data['수익률'] < SELL_OPTION['minimum_percentage']:
+          LOGGER.info('%s : Profit(%.2f%%) is lower than minimum_percentage(%.2f%%)' % (data['종목명'], data['수익률'] * 100, SELL_OPTION['minimum_percentage'] * 100))
+        else:
+          if idx not in sell_list:
+            sell_list[idx] = {
+            'info': argHoldingStocks.iloc[idx, :],
+            'reason': []
+          }
+          sell_list[idx]['reason'].append('>=%.2f%%(Static)' % (SELL_OPTION['static']['percentage'] * 100))
+  
+  # Check Stats Profit Cut
+  LOGGER.info('Check Stats Profit Cut: %s, %ddays (>=%.2f%%[KOSPI], >=%.2f%%[KOSDAQ])' % (SELL_OPTION['stats']['enabled'], SELL_OPTION['stats']['days'], SELL_OPTION['stats']['percentage']['KOSPI']['avg_profit_rate'] * 100, SELL_OPTION['stats']['percentage']['KOSDAQ']['avg_profit_rate'] * 100))
+  if SELL_OPTION['stats']['enabled']:
+    for idx, data in argHoldingStocks.iterrows():
+      market = data['Market']
+      if data['수익률'] >= SELL_OPTION['stats']['percentage'][market]['avg_profit_rate']:
+        LOGGER.info('%s(%s) is greater than stats percentage(%.2f%%>=%.2f%%)' % (data['종목명'], market, data['수익률'] * 100, SELL_OPTION['stats']['percentage'][market]['avg_profit_rate'] * 100))
+        if data['수익률'] < SELL_OPTION['minimum_percentage']:
+          LOGGER.info('%s : Profit(%.2f%%) is lower than minimum_percentage(%.2f%%)' % (data['종목명'], data['수익률'] * 100, SELL_OPTION['minimum_percentage'] * 100))
+        else:
+          if idx not in sell_list:
+            sell_list[idx] = {
+            'info': argHoldingStocks.iloc[idx, :],
+            'reason': []
+          }
+          sell_list[idx]['reason'].append('>=%.2f%%(Stats|%s)' % (SELL_OPTION['stats']['percentage'][market]['avg_profit_rate'] * 100, market))
+  
+  # Check Target Price
+  LOGGER.info('Check Target Price Cut: %s' % (SELL_OPTION['target_price']['enabled']))
+  if SELL_OPTION['target_price']['enabled']:
+    for idx, data in argHoldingStocks.iterrows():
+      if data['TargetPrice'] is not None and data['현재가'] >= data['TargetPrice']:
+        LOGGER.info('%s is greater than target price(%s>=%s)' % (data['종목명'], fnCommify(data['현재가']), fnCommify(data['TargetPrice'])))
+        if data['수익률'] < SELL_OPTION['minimum_percentage']:
+          LOGGER.info('%s : Profit(%.2f%%) is lower than minimum_percentage(%.2f%%)' % (data['종목명'], data['수익률'] * 100, SELL_OPTION['minimum_percentage'] * 100))
+        else:
+          if idx not in sell_list:
+            sell_list[idx] = {
+            'info': argHoldingStocks.iloc[idx, :],
+            'reason': []
+          }
+          sell_list[idx]['reason'].append('>=%d(TargetPrice)' % (data['TargetPrice']))
 
-        for buy_stock_info in TRADING_LIST['buy']:
-          TRADER.kiwoom_SendOrder("TRADER_NEW_BUY", "1111", ACCOUNT_INFO['account_number'], 1, buy_stock_info['symbol_code'], buy_stock_info['quantity'], 0, '03', '')
-          LOGGER.debug('Buy send order %s(%s)' % (buy_stock_info['name'], buy_stock_info['symbol_code']))
-          time.sleep(0.3)
-    
-    buy_wait_count = 0
+  # Check No More Buy
 
-    while True:
-      if len(TRADER.trading_buy_list.keys()) == 0:
-        if 'buy' in TRADER.trading_total.keys():
-          message = [ '<<<  매수 결과 >>>' ]
-          message.append('총 매수 주식 종목: %s개' % (
-            fnCommify(TRADER.trading_total['buy']['stock_count'])
-          ))
-          message.append('')
-          message.append('총 예상 매수금액: %s원' % (
-            fnCommify(TRADER.trading_total['buy']['predict_sum'])
-          ))
-          message.append('')
-          message.append('총 매수금액: %s원' % (
-            fnCommify(TRADER.trading_total['buy']['sum'])
-          ))
-          message.append('')
-          message.append('예상 대비 추가 매수금액: %s원' % (
-            fnCommify(TRADER.trading_total['buy']['sum'] - TRADER.trading_total['buy']['predict_sum'])
-          ))
-          fnSendMessage(message)
-      
-        message = [ '*** 매수 프로세스 완료 ***' ]
-        fnSendMessage(message)
-        break
-      elif WORKER_TERMINATE_STATUS['buy']:
-        message = [ '*** 매수 프로세스 에러 ***' ]
-        message.append(WORKER_TERMINATE_STATUS['buy_msg'])
-        fnSendMessage(message)
+  # Check Speed Mode
+  LOGGER.info('Check Speed Mode Profit Cut: %s (>=%.2f%%)' % (SELL_OPTION['speed_mode']['enabled'], SELL_OPTION['speed_mode']['percentage'] * 100))
+  if SELL_OPTION['speed_mode']['enabled']:
+    for idx, data in argHoldingStocks.iterrows():
+      if data['수익률'] >= SELL_OPTION['speed_mode']['percentage']:
+        LOGGER.info('%s(%s) is greater than speed mode percentage(%.2f%%>=%.2f%%)' % (data['종목명'], market, data['수익률'] * 100, SELL_OPTION['speed_mode']['percentage'] * 100))
+        if data['수익률'] < SELL_OPTION['minimum_percentage']:
+          LOGGER.info('%s : Profit(%.2f%%) is lower than minimum_percentage(%.2f%%)' % (data['종목명'], data['수익률'] * 100, SELL_OPTION['minimum_percentage'] * 100))
+        else:
+          if idx not in sell_list:
+            sell_list[idx] = {
+            'info': argHoldingStocks.iloc[idx, :],
+            'reason': []
+          }
+          sell_list[idx]['reason'].append('>=%.2f%%(Speed Mode)' % (SELL_OPTION['speed_mode']['percentage'] * 100))
 
-        message = [ '*** 매수 프로세스 완료 ***' ]
-        fnSendMessage(message)
-        break
-      else:
-        time.sleep(1)
-        buy_wait_count += 1
+  return sell_list
 
-        if buy_wait_count == CONNECTION_OPTION['waiting']:
-          message = [ '!!! 매수 미완료 !!!' ]
-          message.append('직접 확인 필요!!!')
-          fnSendMessage(message)
-          break
+def fnCheckBuyStocks():
+  global LOGGER
+  global KIWOOM_OPTION
+  global BUY_OPTION
 
-    if 'buy' in TRADER.trading_total.keys():
-      # UPDATE ACCOUNT INFO
-      fnUpdateAccountInfo()
+  buy_list = []
 
-      # AVAILABLE MONEY & MY STOCKS INFO
-      fnSendAccountInfo()
+  LOGGER.debug('fnCheckBuyStocks')
 
-    WORKER_TERMINATE_STATUS['buy'] = True
-    TERMINATE = True
+  deposit = fnGetDepositInfo(KIWOOM_OPTION['account_number'])
 
-#=============================== Check Buy Sell Functions ===============================#
-def fnCheckSellStocks():
-  return
+  deposit = int(deposit['100%종목주문가능금액'])
+  LOGGER.debug('Deposit: %s' % (fnCommify(deposit)))
+
+  LOGGER.debug('Money per buy: %s' % (fnCommify(KIWOOM_OPTION['money_per_buy'])))
+
+  available_count = math.floor(deposit / KIWOOM_OPTION['money_per_buy'])
+  LOGGER.debug('Available Count: %s' % (fnCommify(available_count)))
+
+  LOGGER.debug('Start idx: %d' % (BUY_TRADE_LIST['start_idx']))
+
+  for stock in BUY_TRADE_LIST['list'][BUY_TRADE_LIST['start_idx']:(BUY_TRADE_LIST['start_idx'] + available_count)]:
+    buy_list.append(stock)
+  
+  BUY_TRADE_LIST['start_idx'] += len(buy_list)
+  LOGGER.debug('Start idx: %d' % (BUY_TRADE_LIST['start_idx']))
+  
+  return buy_list
+
+def fnSettingBuyTradeList(argSignalList, argHoldingStocks):
+  global LOGGER
+  global BUY_OPTION
+
+  LOGGER.debug('fnSettingBuyTradeList')
+
+  trade_list = []
+  for level in BUY_OPTION['level']:
+    # remove holding stocks
+    for stock in argSignalList['buy'][level]:
+      if len(argHoldingStocks[(argHoldingStocks['종목코드'] == stock['symbol_code'])].index) == 0:
+        trade_list.append(stock)
+
+  return trade_list
+
+def fnGetQuantity(argTradePrice, argMaxMoney):
+  global LOGGER
+
+  resQuantity = 0
+
+  argTradePrice = abs(argTradePrice)
+
+  LOGGER.debug('Trade Price: %s' % (fnCommify(argTradePrice)))
+  LOGGER.debug('Max Money: %s' % (fnCommify(argMaxMoney)))
+
+  if argMaxMoney >= argTradePrice:
+    resQuantity = math.floor(argMaxMoney / argTradePrice)
+
+  LOGGER.debug('result: %s' % (fnCommify(resQuantity)))
+
+  return resQuantity
+
+#=============================== Kiwoom Functions ===============================#
+def fnGetAccountInfo():
+  global LOGGER
+  global KOAPY_TRADER
+
+  LOGGER.debug('fnGetAccountInfo')
+  return KOAPY_TRADER.GetAccountList()
+
+def fnGetDepositInfo(argAccount):
+  global LOGGER
+  global KOAPY_TRADER
+
+  LOGGER.debug('fnGetDepositInfo(%s)' % (argAccount))
+  return KOAPY_TRADER.GetDepositInfo(argAccount)
+
+def fnGetHoldingStocks(argAccount):
+  global LOGGER
+  global KIWOOM_OPTION
+  global KOAPY_TRADER
+
+  LOGGER.debug('fnGetHoldingStocks(%s)' % (argAccount))
+  
+  summary, holding_stocks = KOAPY_TRADER.GetAccountEvaluationBalanceAsSeriesAndDataFrame(argAccount)
+  holding_stocks = holding_stocks.rename(columns={'종목번호': '종목코드', '수익률(%)': '수익률'})
+  holding_stocks['수익률'] = pd.to_numeric(holding_stocks['수익률']) / 100
+  # str to num
+  holding_stocks['평가손익'] = pd.to_numeric(holding_stocks['평가손익'])
+  holding_stocks['매입가'] = pd.to_numeric(holding_stocks['매입가'])
+  holding_stocks['전일종가'] = pd.to_numeric(holding_stocks['전일종가'])
+  holding_stocks['보유수량'] = pd.to_numeric(holding_stocks['보유수량'])
+  holding_stocks['매매가능수량'] = pd.to_numeric(holding_stocks['매매가능수량'])
+  holding_stocks['현재가'] = pd.to_numeric(holding_stocks['현재가'])
+  holding_stocks['전일매수수량'] = pd.to_numeric(holding_stocks['전일매수수량'])
+  holding_stocks['전일매도수량'] = pd.to_numeric(holding_stocks['전일매도수량'])
+  holding_stocks['금일매수수량'] = pd.to_numeric(holding_stocks['금일매수수량'])
+  holding_stocks['금일매도수량'] = pd.to_numeric(holding_stocks['금일매도수량'])
+  holding_stocks['매입금액'] = pd.to_numeric(holding_stocks['매입금액'])
+  holding_stocks['매입수수료'] = pd.to_numeric(holding_stocks['매입수수료'])
+  holding_stocks['평가금액'] = pd.to_numeric(holding_stocks['평가금액'])
+  holding_stocks['평가수수료'] = pd.to_numeric(holding_stocks['평가수수료'])
+  holding_stocks['세금'] = pd.to_numeric(holding_stocks['세금'])
+  holding_stocks['수수료합'] = pd.to_numeric(holding_stocks['수수료합'])
+  holding_stocks['보유비중(%)'] = pd.to_numeric(holding_stocks['보유비중(%)'])
+  holding_stocks['신용구분'] = pd.to_numeric(holding_stocks['신용구분'])
+
+  holding_stocks = holding_stocks.drop(holding_stocks[(pd.to_numeric(holding_stocks['현재가']) == 0) & (pd.to_numeric(holding_stocks['평가금액']) == 0) & (pd.to_numeric(holding_stocks['수익률']) == 0)].index)
+  
+  return holding_stocks
 
 #=============================== Main Functions ===============================#
 def fnMain(argOptions, argArgs):
   global LOGGER
+  global KIWOOM_OPTION
+  global KOAPY_TRADER
+  global WORKER
+  global SIGNAL_LIST
+  global BUY_TRADE_LIST
 
   try:
     fnLoadingOptions()
 
     if fnCheckOptions() is False:
       return False
-    # print(fnGetConsensusInfo())
+
+    SIGNAL_LIST = fnGetConsensusInfo()
+
+    KOAPY_TRADER = KiwoomOpenApiPlusEntrypoint()
+    KOAPY_TRADER.EnsureConnected()
+  
+    account_list = fnGetAccountInfo()
+
+    if KIWOOM_OPTION['account_number'] in account_list:
+      LOGGER.info('%s in Account list' % (KIWOOM_OPTION['account_number']))
+    else:
+      LOGGER.info('%s is not found!' % (KIWOOM_OPTION['account_number']))
+      return False
+
+    BUY_TRADE_LIST['list'] = fnSettingBuyTradeList(SIGNAL_LIST, fnGetHoldingStocks(KIWOOM_OPTION['account_number']))
+
+    # SELL MY STOCK
+    WORKER['sell'] = SellWorker()
+    WORKER['sell'].start()
+    # END OF SELL
+    
+    # BUY MY STOCK
+    WORKER['buy'] = BuyWorker()
+    WORKER['buy'].start()
+    # END OF BUY
+
+    while True:
+      if WORKER['sell'].isRunning():
+        LOGGER.debug('Sell worker runnig')
+      else:
+        LOGGER.info('Sell work terminate')
+
+      if WORKER['buy'].isRunning():
+        LOGGER.debug('Buy worker runnig')
+      else:
+        LOGGER.info('Buy work terminate')
+
+      if WORKER['sell'].isRunning() is False and WORKER['buy'].isRunning() is False:
+        LOGGER.info('All terminated!')
+        time.sleep(3)
+        break
+      
+      time.sleep(5)
     return True
   except:
     LOGGER.error(' *** Error in Main.')
@@ -305,17 +620,21 @@ def fnGetConsensusInfo():
     today = datetime.today().strftime("%Y-%m-%d")
 
     for target in data.keys():
+      LOGGER.debug(target)
       for try_count in range(CONNECTION_OPTION['try_count']):
         try:
           if target == 'buy':
-            for (idx, option) in enumerate(BUY_OPTION['buy_level_option']):
+            for (idx, option) in enumerate(BUY_OPTION['level_option']):
               params = option
               params['level'] = idx
+
+              LOGGER.debug('%s' % (url % (target, today)))
 
               res = fnGetData((url % (target, today)), params=params)
 
               data[target][idx] += res.json()['data']['rows']
           else:
+            LOGGER.debug('%s' % (url % (target, today)))
             res = fnGetData((url % (target, today)))
             data[target] += res.json()['data']['rows']
           break
@@ -327,6 +646,7 @@ def fnGetConsensusInfo():
     LOGGER.error(res.text)
     LOGGER.error(traceback.format_exc())
   finally:
+    print(data)
     return data
 
 def fnGetConsensusLatestInfo():
@@ -368,6 +688,7 @@ def fnGetProfitCutStats():
 
   try:
     url = '%s/stats?days=%d' % (STOCKER_URL, SELL_OPTION['stats']['days'])
+    LOGGER.debug(url)
 
     for try_count in range(CONNECTION_OPTION['try_count']):
       try:
@@ -384,18 +705,18 @@ def fnGetProfitCutStats():
   finally:
     return data
 
-def fnGetMoreInfoMyStock():
+def fnGetMoreInfoMyStock(argSymbolCodes):
   global LOGGER
   global STOCKER_URL
   global CONNECTION_OPTION
-  global SELL_OPTION
 
   LOGGER.info('Get More info from web!')
 
   data = None
 
   try:
-    url = '%s/info?date=%s&symbol_code=%s' % (STOCKER_URL, datetime.today().strftime("%Y-%m-%d"), ','.join(list(map(lambda x: 'A' + x['symbol_code'], ACCOUNT_INFO['my_stocks']))))
+    # url = '%s/info?date=%s&symbol_code=%s' % (STOCKER_URL, datetime.today().strftime("%Y-%m-%d"), ','.join(list(map(lambda x: 'A' + x, argSymbolCodes))))
+    url = '%s/info?date=%s&symbol_code=%s' % (STOCKER_URL, datetime.today().strftime("%Y-%m-%d"), ','.join(argSymbolCodes))
 
     for try_count in range(CONNECTION_OPTION['try_count']):
       try:
@@ -418,6 +739,15 @@ def fnCommify(argValue, argPoint=2):
     return format(argValue, ',')
   if type(argValue) is float:
     return format(argValue, (',.%df' % argPoint))
+
+def fnCheckOpenKRX():
+  now = Timestamp.now(tz=KRX_CALENDAR.tz)
+  previous_open = KRX_CALENDAR.previous_open(now).astimezone(KRX_CALENDAR.tz)
+  # https://github.com/quantopian/trading_calendars#why-are-open-times-one-minute-late
+  if previous_open.minute % 5 == 1:
+    previous_open -= timedelta(minutes=1)
+  next_close = KRX_CALENDAR.next_close(previous_open).astimezone(KRX_CALENDAR.tz)
+  return previous_open <= now <= next_close
 
 #=============================== Loading & Check Option Function ===============================#
 def fnLoadingOptions():
@@ -456,7 +786,15 @@ def fnLoadingOptions():
     if 'sell_option' in CONFIG:
       SELL_OPTION.update(CONFIG['sell_option'])
     SELL_OPTION['stats']['percentage'] = fnGetProfitCutStats()
-          
+    SELL_OPTION['stats']['percentage']['KOSPI']['avg_profit_rate'] = round(SELL_OPTION['stats']['percentage']['KOSPI']['avg_profit_rate'], 2) / 100
+    SELL_OPTION['stats']['percentage']['KOSDAQ']['avg_profit_rate'] = round(SELL_OPTION['stats']['percentage']['KOSDAQ']['avg_profit_rate'], 2) / 100
+    # SELL_OPTION['static']['percentage'] *= 100
+    # SELL_OPTION['stats']['percentage']['KOSPI']['avg_profit_rate'] *= 100
+    # SELL_OPTION['stats']['percentage']['KOSDAQ']['avg_profit_rate'] *= 100
+    # SELL_OPTION['no_more_buy']['percentage'] *= 100
+    # SELL_OPTION['speed_mode']['percentage'] *= 100
+    # SELL_OPTION['minimum_percentage'] *= 100
+    
     # Loading Telegram Option
     if 'telegram_option' in CONFIG:
       TELEGRAM_OPTION.update(CONFIG['telegram_option'])
@@ -560,8 +898,8 @@ def fnCheckOptions():
     elif SELL_OPTION['stats']['enabled'] is True and 'days' in SELL_OPTION['stats']:
       LOGGER.info('\tProfit Cut by Stats Days: %d' % (SELL_OPTION['stats']['days']))
       if 'percentage' in SELL_OPTION['stats']:
-        LOGGER.info('\t\tKOSPI: %.2f%%' % (SELL_OPTION['stats']['percentage']['KOSPI']['avg_profit_rate']))
-        LOGGER.info('\t\tKOSDAQ: %.2f%%' % (SELL_OPTION['stats']['percentage']['KOSDAQ']['avg_profit_rate']))
+        LOGGER.info('\t\tKOSPI: %.2f%%' % (SELL_OPTION['stats']['percentage']['KOSPI']['avg_profit_rate'] * 100))
+        LOGGER.info('\t\tKOSDAQ: %.2f%%' % (SELL_OPTION['stats']['percentage']['KOSDAQ']['avg_profit_rate'] * 100))
     
     # Target Price Cut
     LOGGER.info('\tTarget Price Cut: %s' % (SELL_OPTION['target_price']['enabled']))
@@ -644,7 +982,7 @@ def fnInit(argOptions):
   else:
     LOGGER.setLevel(logging.INFO)
 
-  formatter = logging.Formatter('[%(levelname)s] - %(filename)s:%(lineno)s\t- %(asctime)s - %(message)s')
+  formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s - %(filename)s:%(lineno)s')
   
   file_handler = logging.handlers.TimedRotatingFileHandler(LOG_FILENAME, when='midnight', backupCount=7, encoding='UTF-8')
   file_handler.suffix = '%Y%m%d'
@@ -670,7 +1008,7 @@ def fnSetOptions():
 
   # Ref. https://docs.python.org/2/library/optparse.html#optparse-reference-guide
   options = [
-    { 'Param': ('-c', '--config'), 'action': 'store', 'type': 'string', 'dest': 'o_sConfigFilePath', 'default': 'config.conf', 'metavar': '<Config file path>', 'help': 'Set config file path.\t\tdefault) config.conf (contents type is JSON)' },
+    { 'Param': ('-c', '--config'), 'action': 'store', 'type': 'string', 'dest': 'o_sConfigFilePath', 'default': 'conf/config.conf', 'metavar': '<Config file path>', 'help': 'Set config file path.\t\tdefault) config.conf (contents type is JSON)' },
     { 'Param': ('-v', '--verbose'), 'action': 'store_true', 'dest': 'o_bVerbose', 'default': False, 'metavar': '<Verbose Mode>', 'help': 'Set verbose mode.\t\tdefault) False' }
   ]
   usage = '%prog [options] <File or Dir path>\n\tex) %prog test\\'
