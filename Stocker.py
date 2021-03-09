@@ -1270,17 +1270,16 @@ def fnGetConsensusLatestInfo():
   finally:
     return data
 
-def fnGetProfitCutStats():
+def fnGetProfitCutStats(argDays):
   global LOGGER
   global CONNECTION_OPTION
-  global SELL_OPTION
 
   LOGGER.info('Get Profit cut info from web!')
 
   data = None
 
   try:
-    url = 'http://tbx.kr/api/v1/trader/consensus/stats?days=%d' % SELL_OPTION['profit_cut_by_stats_days']
+    url = 'http://tbx.kr/api/v1/trader/consensus/stats?days=%d' % argDays
 
     for try_count in range(CONNECTION_OPTION['try_count']):
       try:
@@ -1822,7 +1821,7 @@ def fnLoadingOptions():
     # Loading Sell Option
     if 'sell_option' in CONFIG:
       SELL_OPTION.update(CONFIG['sell_option'])
-      SELL_OPTION['profit_cut_by_stats_percentage'] = fnGetProfitCutStats()
+      SELL_OPTION['profit_cut_by_stats_percentage'] = fnGetProfitCutStats(CONFIG['sell_option']['profit_cut_by_stats_days'])
       
       # Check minimum_profit_cut_percentage
       if 'minimum_profit_cut_percentage' in SELL_OPTION:
@@ -1830,7 +1829,25 @@ def fnLoadingOptions():
           SELL_OPTION['minimum_profit_cut_percentage']
         ))
 
-        # 2. set profit_cut_percentage => minimum_profit_cut_percentage
+        if 'auto_minimum_profit_cut' in SELL_OPTION and SELL_OPTION['auto_minimum_profit_cut'] is True:
+          LOGGER.debug('auto_minimum_profit_cut is True!')
+          trend = fnGetProfitCutStats(30)
+          trend = (trend['KOSPI']['avg_profit_rate'] + trend['KOSPI']['avg_profit_rate']) / 2
+
+          if trend < 0:
+            SELL_OPTION['minimum_profit_cut_percentage'] = 3.0
+          elif trend < 5:
+            SELL_OPTION['minimum_profit_cut_percentage'] = 5.0
+          elif trend < 7:
+            SELL_OPTION['minimum_profit_cut_percentage'] = 7.0
+          elif trend < 10:
+            SELL_OPTION['minimum_profit_cut_percentage'] = 10.0
+
+          LOGGER.debug('minimum_profit_cut_percentage re-setted! (%.2f%%)' % (
+            SELL_OPTION['minimum_profit_cut_percentage']
+          ))
+
+        # 1. set profit_cut_percentage => minimum_profit_cut_percentage
         if 'profit_cut_percentage' in SELL_OPTION and SELL_OPTION['profit_cut_percentage'] < SELL_OPTION['minimum_profit_cut_percentage']:
           LOGGER.debug('profit_cut_percentage is lower than minimum_profit_cut_percentage! (%.2f%%)' % (
             SELL_OPTION['profit_cut_percentage']
@@ -1840,7 +1857,7 @@ def fnLoadingOptions():
             SELL_OPTION['profit_cut_percentage']
           ))
         
-        # 3. set profit_cut_percentage => minimum_profit_cut_percentage
+        # 2. set profit_cut_by_stats_percentage => minimum_profit_cut_percentage
         if 'profit_cut_by_stats_percentage' in SELL_OPTION:
           for market in SELL_OPTION['profit_cut_by_stats_percentage']:
             if SELL_OPTION['profit_cut_by_stats_percentage'][market]['avg_profit_rate'] < SELL_OPTION['minimum_profit_cut_percentage']:
