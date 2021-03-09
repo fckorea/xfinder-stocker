@@ -984,7 +984,7 @@ def fnInit(argOptions):
 
   formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s - %(filename)s:%(lineno)s')
   
-  file_handler = logging.handlers.TimedRotatingFileHandler(LOG_FILENAME, when='midnight', backupCount=7, encoding='UTF-8')
+  file_handler = logging.handlers.TimedRotatingFileHandler(LOG_FILENAME, when='midnight', interval=1, backupCount=7, encoding='UTF-8')
   file_handler.suffix = '%Y%m%d'
   file_handler.setFormatter(formatter)
 
