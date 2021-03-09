@@ -1197,13 +1197,13 @@ def fnGetData(argURL, params=None, headers=None, argTryCount=5):
     try:
       res = requests.get(argURL, params=params, headers=headers)
 
-      if(res.status_code is 200):
+      if(res.status_code == 200):
         break
     except:
       LOGGER.error('\t -x- Requests error:fnGetData() (Try: %02d / %02d)' % ((try_count + 1), argTryCount))
       time.sleep(1)
 
-  if((try_count == argTryCount) or ((res is not None) and (res.status_code is not 200))):
+  if((try_count == argTryCount) or ((res != None) and (res.status_code != 200))):
     LOGGER.error('\t * data collecting error! (URL: %s, code: %s)' % (argURL, res.status_code))
     return None
   
@@ -1667,8 +1667,9 @@ def fnMain(argOptions, argArgs):
       message.append('    - 매수금 부족 시 익절 매도 설정: %s (>=%.2f%%)' % (SELL_OPTION['no_more_buy_profit_cut'], SELL_OPTION['no_more_buy_profit_cut_percentage']))
     else:
       message.append('    - 매수금 부족 시 익절 매도 설정: %s' % (SELL_OPTION['no_more_buy_profit_cut']))
+      
     if 'minimum_profit_cut_percentage' in SELL_OPTION:
-      message.append('    - 최소 익절 매도 수익률: %.2f%%' % (SELL_OPTION['minimum_profit_cut_percentage']))
+      message.append('    - 최소 익절 매도 수익률: %.2f%% (Auto: %s)' % (SELL_OPTION['minimum_profit_cut_percentage'], SELL_OPTION['auto_minimum_profit_cut']))
     if len(SELL_EXCEPTION) > 0:
       message.append('+ 판매 예외 종목 코드: %s' % (','.join(SELL_EXCEPTION)))
     message.append('+ 시스템 자동 종료 설정: %s' % (SYSTEM_OPTION['auto_shutdown']))
@@ -1989,6 +1990,9 @@ def fnCheckOptions():
       res_check = False
     elif SELL_OPTION['no_more_buy_profit_cut'] is True and 'no_more_buy_profit_cut_percentage' in SELL_OPTION:
       LOGGER.info('\tNo More Buy Profit Cut Percentage: %d%%' % (SELL_OPTION['no_more_buy_profit_cut_percentage']))
+
+    # Minimum Profit Cut
+    LOGGER.info('\tMinimum Profit Cut: %.2f%% (Auto: %s)' % (SELL_OPTION['minimum_profit_cut_percentage'], SELL_OPTION['auto_minimum_profit_cut']))
 
     return True
   except:
