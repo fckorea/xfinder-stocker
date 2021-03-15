@@ -11,6 +11,7 @@
 #-------------------------------------------------------------------------------
 
 import os
+import sys
 from optparse import OptionParser
 import logging
 import logging.handlers
@@ -18,6 +19,7 @@ import json
 import traceback
 import time
 from datetime import datetime
+from datetime import timedelta
 import math
 from functools import reduce
 import re
@@ -28,6 +30,11 @@ from PyQt5.QtCore import QObject
 from PyQt5.QtCore import QThread
 from PyQt5.QtCore import QEventLoop
 from PyQt5.QtWidgets import QApplication
+
+from pandas import Timestamp
+from trading_calendars import get_calendar
+
+from SysTrader import SysTrader
 
 PROG_NAME = 'Stocker v2'
 PROG_VER = '1.0'
@@ -80,18 +87,25 @@ SELL_OPTION = {
     'enabled': False,
     'percentage': 0.02
   },
-  'minimum_percentage': 0.1
+  'minimum': {
+    'auto': False,
+    'percentage': 0.1
+  }
 }
 TELEGRAM_OPTION = {
   'enabled': False
 }
-
 
 ACCOUNT_INFO = {
   'account_number': None,
   'available_money': 0,
   'my_stocks': []
 }
+
+APP = None
+TRADER = None
+
+KRX_CALENDAR = get_calendar('XKRX')
 
 #=============================== Worker Class ===============================#
 class SellWorker(QThread):
@@ -227,20 +241,259 @@ class BuyWorker(QThread):
     WORKER_TERMINATE_STATUS['buy'] = True
     TERMINATE = True
 
-#=============================== Check Buy Sell Functions ===============================#
-def fnCheckSellStocks():
-  return
+#=============================== Buy Sell Util Functions ===============================#
+def fnCheckSellStocks(argHoldingStocks):
+  global LOGGER
+  global SELL_OPTION
+
+  sell_list = {
+    # INDEX: {
+    #   INFO: {}
+    #   REASON: []
+    # }
+  }
+
+  LOGGER.debug('fnCheckSellStocks')
+
+  # Notice Minimum Profit Cut
+  LOGGER.info('Minimum Profit Cut Percentage: %.2f%%' % (SELL_OPTION['minimum']['percentage'] * 100))
+
+  # Check Static Profit Cut
+  LOGGER.info('Check Static Profit Cut: %s (>=%.2f%%)' % (SELL_OPTION['static']['enabled'], SELL_OPTION['static']['percentage'] * 100))
+  if SELL_OPTION['static']['enabled'] is True:
+    for idx, data in argHoldingStocks.iterrows():
+      if data['수익률'] >= SELL_OPTION['static']['percentage']:
+        LOGGER.info('%s is greater than static percentage(%.2f%%>=%.2f%%)' % (data['종목명'], data['수익률'] * 100, SELL_OPTION['static']['percentage'] * 100))
+        # if data['수익률'] < SELL_OPTION['minimum_percentage']:
+        #   LOGGER.info('%s : Profit(%.2f%%) is lower than minimum_percentage(%.2f%%)' % (data['종목명'], data['수익률'] * 100, SELL_OPTION['minimum_percentage'] * 100))
+        # else:
+        #   if idx not in sell_list:
+        #     sell_list[idx] = {
+        #     'info': argHoldingStocks.iloc[idx, :],
+        #     'reason': []
+        #   }
+        #   sell_list[idx]['reason'].append('>=%.2f%%(Static)' % (SELL_OPTION['static']['percentage'] * 100))
+        if idx not in sell_list:
+          sell_list[idx] = {
+            'info': argHoldingStocks.iloc[idx, :],
+            'reason': []
+          }
+        sell_list[idx]['reason'].append('>=%.2f%%(Static)' % (SELL_OPTION['static']['percentage'] * 100))
+  
+  # Check Stats Profit Cut
+  LOGGER.info('Check Stats Profit Cut: %s, %ddays (>=%.2f%%[KOSPI], >=%.2f%%[KOSDAQ])' % (SELL_OPTION['stats']['enabled'], SELL_OPTION['stats']['days'], SELL_OPTION['stats']['percentage']['KOSPI']['percentage'] * 100, SELL_OPTION['stats']['percentage']['KOSDAQ']['percentage'] * 100))
+  if SELL_OPTION['stats']['enabled'] is True:
+    for idx, data in argHoldingStocks.iterrows():
+      market = data['Market']
+      if data['수익률'] >= SELL_OPTION['stats']['percentage'][market]['percentage']:
+        LOGGER.info('%s(%s) is greater than stats percentage(%.2f%%>=%.2f%%)' % (data['종목명'], market, data['수익률'] * 100, SELL_OPTION['stats']['percentage'][market]['percentage'] * 100))
+        # if data['수익률'] < SELL_OPTION['minimum_percentage']:
+        #   LOGGER.info('%s : Profit(%.2f%%) is lower than minimum_percentage(%.2f%%)' % (data['종목명'], data['수익률'] * 100, SELL_OPTION['minimum_percentage'] * 100))
+        # else:
+        #   if idx not in sell_list:
+        #     sell_list[idx] = {
+        #     'info': argHoldingStocks.iloc[idx, :],
+        #     'reason': []
+        #   }
+        #   sell_list[idx]['reason'].append('>=%.2f%%(Stats|%s)' % (SELL_OPTION['stats']['percentage'][market]['avg_profit_rate'] * 100, market))
+        if idx not in sell_list:
+          sell_list[idx] = {
+            'info': argHoldingStocks.iloc[idx, :],
+            'reason': []
+          }
+        sell_list[idx]['reason'].append('>=%.2f%%(Stats|%s)' % (SELL_OPTION['stats']['percentage'][market]['percentage'] * 100, market))
+  
+  # Check Target Price
+  LOGGER.info('Check Target Price Cut: %s' % (SELL_OPTION['target_price']['enabled']))
+  if SELL_OPTION['target_price']['enabled'] is True:
+    for idx, data in argHoldingStocks.iterrows():
+      if data['TargetPrice'] is not None and data['현재가'] >= data['TargetPrice']:
+        LOGGER.info('%s is greater than target price(%s>=%s)' % (data['종목명'], fnCommify(data['현재가']), fnCommify(data['TargetPrice'])))
+        # if data['수익률'] < SELL_OPTION['minimum_percentage']:
+        #   LOGGER.info('%s : Profit(%.2f%%) is lower than minimum_percentage(%.2f%%)' % (data['종목명'], data['수익률'] * 100, SELL_OPTION['minimum_percentage'] * 100))
+        # else:
+        #   if idx not in sell_list:
+        #     sell_list[idx] = {
+        #     'info': argHoldingStocks.iloc[idx, :],
+        #     'reason': []
+        #   }
+        #   sell_list[idx]['reason'].append('>=%d(TargetPrice)' % (data['TargetPrice']))
+        if idx not in sell_list:
+          sell_list[idx] = {
+            'info': argHoldingStocks.iloc[idx, :],
+            'reason': []
+          }
+        sell_list[idx]['reason'].append('>=%d(TargetPrice)' % (data['TargetPrice']))
+
+  # Check No More Buy
+
+  # Check Speed Mode
+  LOGGER.info('Check Speed Mode Profit Cut: %s (>=%.2f%%)' % (SELL_OPTION['speed_mode']['enabled'], SELL_OPTION['speed_mode']['percentage'] * 100))
+  if SELL_OPTION['speed_mode']['enabled']:
+    for idx, data in argHoldingStocks.iterrows():
+      if data['수익률'] >= SELL_OPTION['speed_mode']['percentage']:
+        LOGGER.info('%s(%s) is greater than speed mode percentage(%.2f%%>=%.2f%%)' % (data['종목명'], market, data['수익률'] * 100, SELL_OPTION['speed_mode']['percentage'] * 100))
+        # if data['수익률'] < SELL_OPTION['minimum_percentage']:
+        #   LOGGER.info('%s : Profit(%.2f%%) is lower than minimum_percentage(%.2f%%)' % (data['종목명'], data['수익률'] * 100, SELL_OPTION['minimum_percentage'] * 100))
+        # else:
+        #   if idx not in sell_list:
+        #     sell_list[idx] = {
+        #     'info': argHoldingStocks.iloc[idx, :],
+        #     'reason': []
+        #   }
+        #   sell_list[idx]['reason'].append('>=%.2f%%(Speed Mode)' % (SELL_OPTION['speed_mode']['percentage'] * 100))
+        if idx not in sell_list:
+          sell_list[idx] = {
+            'info': argHoldingStocks.iloc[idx, :],
+            'reason': []
+          }
+        sell_list[idx]['reason'].append('>=%.2f%%(Speed Mode)' % (SELL_OPTION['speed_mode']['percentage'] * 100))
+
+  return sell_list
+
+def fnCheckBuyStocks():
+  global LOGGER
+  global KIWOOM_OPTION
+  global BUY_OPTION
+
+  buy_list = []
+
+  LOGGER.debug('fnCheckBuyStocks')
+
+  deposit = fnGetDepositInfo(KIWOOM_OPTION['account_number'])
+
+  deposit = int(deposit['100%종목주문가능금액'])
+  LOGGER.debug('Deposit: %s' % (fnCommify(deposit)))
+
+  LOGGER.debug('Money per buy: %s' % (fnCommify(KIWOOM_OPTION['money_per_buy'])))
+
+  available_count = math.floor(deposit / KIWOOM_OPTION['money_per_buy'])
+  LOGGER.debug('Available Count: %s' % (fnCommify(available_count)))
+
+  LOGGER.debug('Start idx: %d' % (BUY_TRADE_LIST['start_idx']))
+
+  for stock in BUY_TRADE_LIST['list'][BUY_TRADE_LIST['start_idx']:(BUY_TRADE_LIST['start_idx'] + available_count)]:
+    buy_list.append(stock)
+  
+  BUY_TRADE_LIST['start_idx'] += len(buy_list)
+  LOGGER.debug('Start idx: %d' % (BUY_TRADE_LIST['start_idx']))
+  
+  return buy_list
+
+def fnSettingBuyTradeList(argSignalList, argHoldingStocks):
+  global LOGGER
+  global BUY_OPTION
+
+  LOGGER.debug('fnSettingBuyTradeList')
+
+  trade_list = []
+  for level in BUY_OPTION['level']:
+    # remove holding stocks
+    for stock in argSignalList['buy'][level]:
+      if len(argHoldingStocks[(argHoldingStocks['종목코드'] == stock['symbol_code'])].index) == 0:
+        trade_list.append(stock)
+
+  return trade_list
+
+def fnGetQuantity(argTradePrice, argMaxMoney):
+  global LOGGER
+
+  resQuantity = 0
+
+  argTradePrice = abs(argTradePrice)
+
+  LOGGER.debug('Trade Price: %s' % (fnCommify(argTradePrice)))
+  LOGGER.debug('Max Money: %s' % (fnCommify(argMaxMoney)))
+
+  if argMaxMoney >= argTradePrice:
+    resQuantity = math.floor(argMaxMoney / argTradePrice)
+
+  LOGGER.debug('result: %s' % (fnCommify(resQuantity)))
+
+  return resQuantity
+
+#=============================== Kiwoom Functions ===============================#
+def fnLogin():
+  global LOGGER
+  global TRADER
+
+  LOGGER.debug('fnLogin')
+
+  TRADER = SysTrader.Kiwoom()
+
+  # login
+  if TRADER.kiwoom_GetConnectState() == 0:
+    LOGGER.debug('로그인 시도')
+    res = TRADER.kiwoom_CommConnect()
+    LOGGER.debug('로그인 결과: {}'.format(res))
+
+  return res
+
+def fnGetAccountInfo():
+  global LOGGER
+  global TRADER
+
+  LOGGER.debug('fnGetAccountInfo')
+  return TRADER.GetAccountList()
+
+def fnGetDepositInfo(argAccount):
+  global LOGGER
+  global TRADER
+
+  LOGGER.debug('fnGetDepositInfo(%s)' % (argAccount))
+  return TRADER.GetDepositInfo(argAccount)
+
+def fnGetHoldingStocks(argAccount):
+  global LOGGER
+  global KIWOOM_OPTION
+  global TRADER
+
+  LOGGER.debug('fnGetHoldingStocks(%s)' % (argAccount))
+  
+  # return holding_stocks
 
 #=============================== Main Functions ===============================#
 def fnMain(argOptions, argArgs):
   global LOGGER
+  global CONNECTION_OPTION
+  global APP
+  global TRADER
 
   try:
     fnLoadingOptions()
 
     if fnCheckOptions() is False:
       return False
-    # print(fnGetConsensusInfo())
+    else:
+      fnSettingOptions()
+      if fnCheckOptions() is False:
+        return False
+      else:
+        LOGGER.info('Option Check Complete!')
+
+    APP = QApplication(sys.argv)
+
+    for try_count in range(CONNECTION_OPTION['try_count']):
+      try:
+        if fnLogin():
+          LOGGER.info('Login Success!')
+        else:
+          LOGGER.info('Login failed...')
+        break
+      except:
+        LOGGER.error(traceback.format_exc())
+        LOGGER.error(' -x- retry (%d / %d)' % (try_count + 1, CONNECTION_OPTION['try_count']))
+
+    account_list = TRADER.kiwoom_GetAccList()
+
+    if KIWOOM_OPTION['account_number'] not in account_list:
+      LOGGER.error('Account is not found(%s)' % (KIWOOM_OPTION['account_number']))
+      APP.quit()
+    
+    ACCOUNT_INFO['account_number'] = KIWOOM_OPTION['account_number']
+
+    # APP.exec_()
+
     return True
   except:
     LOGGER.error(' *** Error in Main.')
@@ -356,7 +609,7 @@ def fnGetConsensusLatestInfo():
   finally:
     return data
 
-def fnGetProfitCutStats():
+def fnGetProfitCutStats(argDays=60):
   global LOGGER
   global STOCKER_URL
   global CONNECTION_OPTION
@@ -367,7 +620,7 @@ def fnGetProfitCutStats():
   data = None
 
   try:
-    url = '%s/stats?days=%d' % (STOCKER_URL, SELL_OPTION['stats']['days'])
+    url = '%s/stats?days=%d' % (STOCKER_URL, argDays)
 
     for try_count in range(CONNECTION_OPTION['try_count']):
       try:
@@ -419,6 +672,15 @@ def fnCommify(argValue, argPoint=2):
   if type(argValue) is float:
     return format(argValue, (',.%df' % argPoint))
 
+def fnCheckOpenKRX():
+  now = Timestamp.now(tz=KRX_CALENDAR.tz)
+  previous_open = KRX_CALENDAR.previous_open(now).astimezone(KRX_CALENDAR.tz)
+  # https://github.com/quantopian/trading_calendars#why-are-open-times-one-minute-late
+  if previous_open.minute % 5 == 1:
+    previous_open -= timedelta(minutes=1)
+  next_close = KRX_CALENDAR.next_close(previous_open).astimezone(KRX_CALENDAR.tz)
+  return previous_open <= now <= next_close
+
 #=============================== Loading & Check Option Function ===============================#
 def fnLoadingOptions():
   global LOGGER
@@ -455,30 +717,41 @@ def fnLoadingOptions():
     # Loading Sell Option
     if 'sell_option' in CONFIG:
       SELL_OPTION.update(CONFIG['sell_option'])
-      SELL_OPTION['stats']['percentage'] = fnGetProfitCutStats()
-          
+      SELL_OPTION['stats']['percentage'] = fnGetProfitCutStats(SELL_OPTION['stats']['days'])
+      SELL_OPTION['stats']['percentage']['KOSPI']['percentage'] = SELL_OPTION['stats']['percentage']['KOSPI']['avg_profit_rate'] / 100
+      SELL_OPTION['stats']['percentage']['KOSDAQ']['percentage'] = SELL_OPTION['stats']['percentage']['KOSDAQ']['avg_profit_rate'] / 100
+      
     # Loading Telegram Option
     if 'telegram_option' in CONFIG:
       TELEGRAM_OPTION.update(CONFIG['telegram_option'])
 
+    LOGGER.debug(STOCKER_OPTION)
     LOGGER.debug(SYSTEM_OPTION)
     LOGGER.debug(CONNECTION_OPTION)
-    LOGGER.debug(TELEGRAM_OPTION)
     LOGGER.debug(KIWOOM_OPTION)
     LOGGER.debug(BUY_OPTION)
     LOGGER.debug(SELL_OPTION)
+    LOGGER.debug(TELEGRAM_OPTION)
 
     return True
   except:
-    LOGGER.debug(traceback.format_exc())
+    LOGGER.error(STOCKER_OPTION)
+    LOGGER.error(SYSTEM_OPTION)
+    LOGGER.error(CONNECTION_OPTION)
+    LOGGER.error(KIWOOM_OPTION)
+    LOGGER.error(BUY_OPTION)
+    LOGGER.error(SELL_OPTION)
+    LOGGER.error(TELEGRAM_OPTION)
+    LOGGER.error(traceback.format_exc())
   
   return False
 
 def fnCheckOptions():
   global LOGGER
+  global STOCKER_OPTION
   global SYSTEM_OPTION
-  global KIWOOM_OPTION
   global CONNECTION_OPTION
+  global KIWOOM_OPTION
   global BUY_OPTION
   global SELL_OPTION
   global TELEGRAM_OPTION
@@ -486,6 +759,12 @@ def fnCheckOptions():
   res_check = True
 
   try:
+    # Check Stocker Option
+    LOGGER.info('Stocker Option:')
+    if 'mode' in STOCKER_OPTION:
+      LOGGER.info('\tMode: %s' % (STOCKER_OPTION['mode']))
+      LOGGER.info('\tRealtime Interval: %ds' % (STOCKER_OPTION['realtime_interval']))
+
     # Check System Option
     LOGGER.info('System Option:')
     if 'auto_shutdown' in SYSTEM_OPTION:
@@ -496,21 +775,6 @@ def fnCheckOptions():
     LOGGER.info('\tWaiting: %ds' % (CONNECTION_OPTION['waiting']))
     LOGGER.info('\tTry Count: %d' % (CONNECTION_OPTION['try_count']))
 
-    # Check Telegram Option
-    LOGGER.info('Telegram Option:')
-    if 'enabled' in TELEGRAM_OPTION and TELEGRAM_OPTION['enabled']:
-      if 'token' not in TELEGRAM_OPTION:
-        LOGGER.info('\tTELEGRAM TOKEN IS NOT SETTING!')
-        res_check = False
-      else:
-        LOGGER.info('\tToken: %s' % (TELEGRAM_OPTION['token']))
-
-      if 'chat_id' not in TELEGRAM_OPTION:
-        LOGGER.info('\tTELEGRAM CHAT ID IS NOT SETTING!')
-        res_check = False
-      else:
-        LOGGER.info('\tChat ID: %s' % (TELEGRAM_OPTION['chat_id']))
-    
     # Check Kiwoom Option
     LOGGER.info('Kiwoom Option:')
     if 'account_number' not in KIWOOM_OPTION:
@@ -559,8 +823,8 @@ def fnCheckOptions():
       res_check = False
     elif SELL_OPTION['stats']['enabled'] is True and 'days' in SELL_OPTION['stats']:
       LOGGER.info('\tProfit Cut by Stats Days: %d' % (SELL_OPTION['stats']['days']))
-      LOGGER.info('\t\tKOSPI: %.2f%%' % (SELL_OPTION['stats']['percentage']['KOSPI']['avg_profit_rate']))
-      LOGGER.info('\t\tKOSDAQ: %.2f%%' % (SELL_OPTION['stats']['percentage']['KOSDAQ']['avg_profit_rate']))
+      LOGGER.info('\t\tKOSPI: %.2f%%' % (SELL_OPTION['stats']['percentage']['KOSPI']['percentage'] * 100))
+      LOGGER.info('\t\tKOSDAQ: %.2f%%' % (SELL_OPTION['stats']['percentage']['KOSDAQ']['percentage'] * 100))
     
     # Target Price Cut
     LOGGER.info('\tTarget Price Cut: %s' % (SELL_OPTION['target_price']['enabled']))
@@ -573,30 +837,122 @@ def fnCheckOptions():
     elif SELL_OPTION['no_more_buy']['enabled'] is True and 'percentage' in SELL_OPTION['no_more_buy']:
       LOGGER.info('\tNo More Buy Profit Cut Percentage: %.2f%%' % (SELL_OPTION['no_more_buy']['percentage'] * 100))
     
+    # Speed Mode Profit Cut
+    LOGGER.info('\tSpeed Mode: %s' % (SELL_OPTION['speed_mode']['enabled']))
+    LOGGER.info('\tSpeed Mode Profit Cut Percentage: %.2f%%' % (SELL_OPTION['speed_mode']['percentage'] * 100))
+    if 'speed_mode' not in SELL_OPTION:
+      LOGGER.info('\tSPEED MODE PROFIT CUT PERCENTAGE IS NOT SETTING!')
+
     # Minimum Profit Cut
-    LOGGER.info('\tMinimum Profit Cut Percentage: %.2f%%' % (SELL_OPTION['minimum_percentage'] * 100))
-    if 'minimum_percentage' not in SELL_OPTION:
+    LOGGER.info('\tMinimum Profit Cut Auto: %s' % (SELL_OPTION['minimum']['auto']))
+    LOGGER.info('\tMinimum Profit Cut Percentage: %.2f%%' % (SELL_OPTION['minimum']['percentage'] * 100))
+    if 'minimum' not in SELL_OPTION:
       LOGGER.info('\tMINIMUM PROFIT CUT PERCENTAGE IS NOT SETTING!')
       res_check = False
+    
+    # Check Telegram Option
+    LOGGER.info('Telegram Option:')
+    if 'enabled' in TELEGRAM_OPTION and TELEGRAM_OPTION['enabled']:
+      if 'token' not in TELEGRAM_OPTION:
+        LOGGER.info('\tTELEGRAM TOKEN IS NOT SETTING!')
+        res_check = False
+      else:
+        LOGGER.info('\tToken: %s' % (TELEGRAM_OPTION['token']))
 
+      if 'chat_id' not in TELEGRAM_OPTION:
+        LOGGER.info('\tTELEGRAM CHAT ID IS NOT SETTING!')
+        res_check = False
+      else:
+        LOGGER.info('\tChat ID: %s' % (TELEGRAM_OPTION['chat_id']))
+
+    LOGGER.debug(STOCKER_OPTION)
     LOGGER.debug(SYSTEM_OPTION)
     LOGGER.debug(CONNECTION_OPTION)
-    LOGGER.debug(TELEGRAM_OPTION)
     LOGGER.debug(KIWOOM_OPTION)
     LOGGER.debug(BUY_OPTION)
     LOGGER.debug(SELL_OPTION)
+    LOGGER.debug(TELEGRAM_OPTION)
 
     return True
   except:
+    LOGGER.error(STOCKER_OPTION)
     LOGGER.error(SYSTEM_OPTION)
     LOGGER.error(CONNECTION_OPTION)
-    LOGGER.error(TELEGRAM_OPTION)
     LOGGER.error(KIWOOM_OPTION)
     LOGGER.error(BUY_OPTION)
     LOGGER.error(SELL_OPTION)
+    LOGGER.error(TELEGRAM_OPTION)
     LOGGER.error(traceback.format_exc())
   
   return res_check
+
+def fnSettingOptions():
+  global LOGGER
+  global CONFIG
+  global STOCKER_OPTION
+  global SYSTEM_OPTION
+  global CONNECTION_OPTION
+  global KIWOOM_OPTION
+  global BUY_OPTION
+  global SELL_OPTION
+  global TELEGRAM_OPTION
+
+  try:
+    # Setting Sell Option
+    ## Setting Minimum
+    if SELL_OPTION['minimum']['auto'] is True:
+      trend = fnGetProfitCutStats(30)
+      trend = (trend['KOSPI']['avg_profit_rate'] + trend['KOSPI']['avg_profit_rate']) / 2
+
+      LOGGER.debug('stats trend is %.2f%%' % (trend))
+
+      if trend < 0:
+        SELL_OPTION['minimum']['percentage'] = 0.03
+      elif trend < 5:
+        SELL_OPTION['minimum']['percentage'] = 0.05
+      elif trend < 7:
+        SELL_OPTION['minimum']['percentage'] = 0.07
+      elif trend < 10:
+        SELL_OPTION['minimum']['percentage'] = 0.1
+
+      LOGGER.info('minimum > percentage re-setted! (%.2f%%)' % (SELL_OPTION['minimum']['percentage']))
+    
+    ## Setting static
+    if SELL_OPTION['static']['enabled'] is True:
+      if SELL_OPTION['static']['percentage'] < SELL_OPTION['minimum']['percentage']:
+        SELL_OPTION['static']['percentage'] = SELL_OPTION['minimum']['percentage']
+        LOGGER.info('static > percentage re-setted! (%.2f%%)' % (SELL_OPTION['static']['percentage']))
+    
+    ## Setting stats
+    if SELL_OPTION['stats']['enabled'] is True:
+      if SELL_OPTION['stats']['percentage']['KOSPI']['percentage'] < SELL_OPTION['minimum']['percentage']:
+        SELL_OPTION['stats']['percentage']['KOSPI']['percentage'] = SELL_OPTION['minimum']['percentage']
+        LOGGER.info('stats > percentage > KOSPI re-setted! (%.2f%%)' % (SELL_OPTION['stats']['percentage']['KOSPI']['percentage']))
+
+      if SELL_OPTION['stats']['percentage']['KOSDAQ']['percentage'] < SELL_OPTION['minimum']['percentage']:
+        SELL_OPTION['stats']['percentage']['KOSDAQ']['percentage'] = SELL_OPTION['minimum']['percentage']
+        LOGGER.info('stats > percentage > KOSDAQ re-setted! (%.2f%%)' % (SELL_OPTION['stats']['percentage']['KOSDAQ']['percentage']))
+
+    LOGGER.debug(STOCKER_OPTION)
+    LOGGER.debug(SYSTEM_OPTION)
+    LOGGER.debug(CONNECTION_OPTION)
+    LOGGER.debug(KIWOOM_OPTION)
+    LOGGER.debug(BUY_OPTION)
+    LOGGER.debug(SELL_OPTION)
+    LOGGER.debug(TELEGRAM_OPTION)
+
+    return True
+  except:
+    LOGGER.error(STOCKER_OPTION)
+    LOGGER.error(SYSTEM_OPTION)
+    LOGGER.error(CONNECTION_OPTION)
+    LOGGER.error(KIWOOM_OPTION)
+    LOGGER.error(BUY_OPTION)
+    LOGGER.error(SELL_OPTION)
+    LOGGER.error(TELEGRAM_OPTION)
+    LOGGER.error(traceback.format_exc())
+  
+  return False
 
 #=============================== Config & Init Function ===============================#
 def fnGetConfig(argConfigFilePath):
