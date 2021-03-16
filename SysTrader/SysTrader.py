@@ -35,7 +35,7 @@ class SyncRequestDecorator:
       if kwargs.get('nPrevNext', 0) == 0:
         self.LOGGER.debug('초기 요청 준비')
         self.params = {}
-        self.result = {}
+        self.result = { 'updated': False }
       # self.request_thread_worker.request_queue.append((func, args, kwargs))
       self.LOGGER.debug("요청 실행: %s %s %s" % (func.__name__, args, kwargs))
       func(self, *args, **kwargs)
@@ -49,6 +49,7 @@ class SyncRequestDecorator:
     def func_wrapper(self, *args, **kwargs):
       self.LOGGER.debug("요청 콜백: %s %s %s" % (func.__name__, args, kwargs))
       func(self, *args, **kwargs)  # 콜백 함수 호출
+      self.result['updated'] = True
     return func_wrapper
 
 
@@ -382,7 +383,33 @@ class Kiwoom(QAxWidget):
         self.dict_callback["예수금상세현황요청"](self.result[sRQName])
       
     elif sRQName == "계좌평가현황요청":
-      self.result[sRQName] = int(self.kiwoom_GetCommData(sTRCode, sRQName, 0, "D+2추정예수금"))
+      self.result[sRQName] = {}
+      list_item_name = [
+        "계좌명",
+        "지점명",
+        "예수금",
+        "D+2추정예수금",
+        "유가잔고평가액",
+        "예탁자산평가액",
+        "총매입금액",
+        "추정예탁자산",
+        "매도담보대출금",
+        "당일투자원금",
+        "당월투자원금",
+        "당일투자손익",
+        "당월투자손익",
+        "누적투자손익",
+        "당일손익율",
+        "당월손이율",
+        "누적손익율",
+        "출력건수"
+      ]
+      
+      self.result[sRQName] = { item_name: util.safe_cast(self.kiwoom_GetCommData(sTRCode, sRQName, 0, item_name).strip(), int, 0) for item_name in list_item_name }
+      
+      self.LOGGER.debug("계좌평가현황요청: %s" % (self.result))
+      if "계좌평가현황요청" in self.dict_callback:
+        self.dict_callback["계좌평가현황요청"](self.result[sRQName])
 
     elif sRQName == "주식기본정보":
       cnt = self.kiwoom_GetRepeatCnt(sTRCode, sRQName)
@@ -529,6 +556,7 @@ class Kiwoom(QAxWidget):
       self.result[sRQName] = []
       for nIdx in range(cnt):
         list_item_name = [
+          "일자",
           "종목코드",
           "종목명",
           "현재가",
@@ -537,7 +565,14 @@ class Kiwoom(QAxWidget):
           "보유수량",
           "당일매도손익",
           "당일매매수수료",
-          "당일매매세금"
+          "당일매매세금",
+          "신용구분",
+          "대출일",
+          "결제잔고",
+          "청산가능수량",
+          "신용금액",
+          "신용이자",
+          "만기일"
         ]
 
         dict_holding = { item_name: self.kiwoom_GetCommData(sTRCode, sRQName, nIdx, item_name).strip() for item_name in list_item_name }
@@ -556,7 +591,7 @@ class Kiwoom(QAxWidget):
         dict_holding["수익률"] = dict_holding["평가손익"] / dict_holding["매입금액"]
         
         self.result[sRQName].append(dict_holding)
-        self.LOGGER.debug("계좌수익: %s" % (dict_holding,))
+        self.LOGGER.debug("계좌수익: %s" % (dict_holding))
 
       if '계좌수익률요청' in self.dict_callback:
         self.dict_callback['계좌수익률요청'](self.dict_holding)
@@ -576,6 +611,8 @@ class Kiwoom(QAxWidget):
           "보유수량",
           "매매가능수량",
           "현재가",
+          "전일매수수량",
+          "전일매도수량",
           "금일매수수량",
           "금일매도수량",
           "매입금액",
@@ -584,7 +621,10 @@ class Kiwoom(QAxWidget):
           "평가수수료",
           "세금",
           "수수료합",
-          "보유비중(%)"
+          "보유비중(%)",
+          "신용구분",
+          "신용구분명",
+          "대출일"
         ]
 
         dict_holding = { item_name: self.kiwoom_GetCommData(sTRCode, sRQName, nIdx, item_name).strip() for item_name in list_item_name }
@@ -615,8 +655,8 @@ class Kiwoom(QAxWidget):
         self.result[sRQName].append(dict_holding)
         # self.LOGGER.debug("계좌수익: %s" % (dict_holding,))
 
-      if '계좌수익률요청' in self.dict_callback:
-        self.dict_callback['계좌수익률요청'](self.dict_holding)
+      if '계좌평가잔고내역요청' in self.dict_callback:
+        self.dict_callback['계좌평가잔고내역요청'](self.dict_holding)
 
     elif sRQName.startswith("RQ_"):
       self.LOGGER.debug("RQ handler")
