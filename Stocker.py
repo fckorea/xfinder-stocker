@@ -54,7 +54,8 @@ SYSTEM_OPTION = {
 }
 CONNECTION_OPTION = {
   'waiting': 600,
-  'try_count': 3
+  'try_count': 3,
+  'wait_interval': 1 
 }
 KIWOOM_OPTION = {
   'money_per_buy': 250000
@@ -438,19 +439,50 @@ def fnGetAccountInfo():
 
 def fnGetDepositInfo(argAccount):
   global LOGGER
+  global CONNECTION_OPTION
   global TRADER
 
   LOGGER.debug('fnGetDepositInfo(%s)' % (argAccount))
-  return TRADER.GetDepositInfo(argAccount)
+
+  TRADER.kiwoom_TR_OPW00004_계좌평가현황요청(argAccount)
+
+  while True:
+    if TRADER.result['updated'] is True:
+      break
+    time.sleep(CONNECTION_OPTION['wait_interval'])
+
+  return TRADER.result['계좌평가현황요청']
 
 def fnGetHoldingStocks(argAccount):
   global LOGGER
-  global KIWOOM_OPTION
+  global CONNECTION_OPTION
   global TRADER
 
   LOGGER.debug('fnGetHoldingStocks(%s)' % (argAccount))
+
+  TRADER.kiwoom_TR_opw00018_계좌평가잔고내역요청(argAccount)
+
+  while True:
+    if TRADER.result['updated'] is True:
+      break
+    time.sleep(CONNECTION_OPTION['wait_interval'])
+    
+  holding_stocks = list(filter(lambda x: x['보유수량'] != 0, TRADER.result['계좌평가잔고내역요청']))
+
+  more_info = fnGetMoreInfoMyStock(list(map(lambda x: x['종목코드'], holding_stocks)))
+
+  more_info_symbols = list(map(lambda x: x['symbol_code'], more_info))
+
+  for (idx, stock) in enumerate(holding_stocks):
+    if stock['종목코드'] in more_info_symbols:
+      m_idx = more_info_symbols.index(stock['종목코드'])
+      holding_stocks[idx]['MORE_INFO'] = more_info[m_idx]
+      holding_stocks[idx]['market'] = more_info[m_idx]['market']
+      holding_stocks[idx]['market_rank'] = more_info[m_idx]['market_rank']
+      holding_stocks[idx]['level'] = more_info[m_idx]['lyr']
+      holding_stocks[idx]['target_price'] = more_info[m_idx]['target_price']
   
-  # return holding_stocks
+  return holding_stocks
 
 #=============================== Main Functions ===============================#
 def fnMain(argOptions, argArgs):
@@ -491,6 +523,11 @@ def fnMain(argOptions, argArgs):
       APP.quit()
     
     ACCOUNT_INFO['account_number'] = KIWOOM_OPTION['account_number']
+
+    # TEST
+    print(fnGetDepositInfo(ACCOUNT_INFO['account_number']))
+    print(fnGetHoldingStocks(ACCOUNT_INFO['account_number']))
+    # End of TEST
 
     # APP.exec_()
 
@@ -637,18 +674,17 @@ def fnGetProfitCutStats(argDays=60):
   finally:
     return data
 
-def fnGetMoreInfoMyStock():
+def fnGetMoreInfoMyStock(argStocksCodes):
   global LOGGER
   global STOCKER_URL
   global CONNECTION_OPTION
-  global SELL_OPTION
 
   LOGGER.info('Get More info from web!')
 
   data = None
 
   try:
-    url = '%s/info?date=%s&symbol_code=%s' % (STOCKER_URL, datetime.today().strftime("%Y-%m-%d"), ','.join(list(map(lambda x: 'A' + x['symbol_code'], ACCOUNT_INFO['my_stocks']))))
+    url = '%s/info?date=%s&symbol_code=%s' % (STOCKER_URL, datetime.today().strftime("%Y-%m-%d"), ','.join(argStocksCodes))
 
     for try_count in range(CONNECTION_OPTION['try_count']):
       try:
