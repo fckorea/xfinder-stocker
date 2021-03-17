@@ -99,12 +99,30 @@ TELEGRAM_OPTION = {
 
 ACCOUNT_INFO = {
   'account_number': None,
-  'available_money': 0,
-  'my_stocks': []
+  'deposit': 0,
+  'holding_stocks': []
 }
 
 APP = None
 TRADER = None
+
+# 오늘 온 시그널 종목
+TODAY_SIGNAL = {
+  'buy': [],
+  'sell': []
+}
+
+# 오늘 주문할 종목
+TODAY_ORDER_LIST = {
+  'buy': [],
+  'sell': []
+}
+
+# 오늘 거래한 종목
+TODAY_TRADING_LIST = {
+  'buy': [],
+  'sell': []
+}
 
 KRX_CALENDAR = get_calendar('XKRX')
 
@@ -484,6 +502,17 @@ def fnGetHoldingStocks(argAccount):
   
   return holding_stocks
 
+def fnUpdateAccountInfo():
+  global LOGGER
+  global ACCOUNT_INFO
+  global TRADER
+
+  ACCOUNT_INFO['deposit_info'] = fnGetDepositInfo(ACCOUNT_INFO['account_number'])
+  ACCOUNT_INFO['deposit'] = ACCOUNT_INFO['deposit_info']['D+2추정예수금']
+  ACCOUNT_INFO['holding_stocks'] = fnGetHoldingStocks(ACCOUNT_INFO['account_number'])
+
+  return True
+
 #=============================== Main Functions ===============================#
 def fnMain(argOptions, argArgs):
   global LOGGER
@@ -524,9 +553,14 @@ def fnMain(argOptions, argArgs):
     
     ACCOUNT_INFO['account_number'] = KIWOOM_OPTION['account_number']
 
+    # ACCOUNT_INFO['deposit_info'] = fnGetDepositInfo(ACCOUNT_INFO['account_number'])
+    # ACCOUNT_INFO['deposit'] = ACCOUNT_INFO['deposit_info']['D+2추정예수금']
+    # ACCOUNT_INFO['holding_stocks'] = fnGetHoldingStocks(ACCOUNT_INFO['account_number'])
+
+    fnUpdateAccountInfo()
+
     # TEST
-    print(fnGetDepositInfo(ACCOUNT_INFO['account_number']))
-    print(fnGetHoldingStocks(ACCOUNT_INFO['account_number']))
+    print(ACCOUNT_INFO)
     # End of TEST
 
     # APP.exec_()
@@ -937,9 +971,10 @@ def fnSettingOptions():
     # Setting Sell Option
     ## Setting Minimum
     if SELL_OPTION['minimum']['auto'] is True:
-      trend = fnGetProfitCutStats(30)
-      trend = (trend['KOSPI']['avg_profit_rate'] + trend['KOSPI']['avg_profit_rate']) / 2
+      stats30 = fnGetProfitCutStats(30)
+      trend = (stats30['KOSPI']['avg_profit_rate'] + stats30['KOSDAQ']['avg_profit_rate']) / 2
 
+      LOGGER.debug('stats 30days KOSPI: %.2f%%, KOSDAQ: %.2f%%' % (stats30['KOSPI']['avg_profit_rate'], stats30['KOSDAQ']['avg_profit_rate']))
       LOGGER.debug('stats trend is %.2f%%' % (trend))
 
       if trend < 0:
@@ -951,23 +986,23 @@ def fnSettingOptions():
       elif trend < 10:
         SELL_OPTION['minimum']['percentage'] = 0.1
 
-      LOGGER.info('minimum > percentage re-setted! (%.2f%%)' % (SELL_OPTION['minimum']['percentage']))
+      LOGGER.info('minimum > percentage re-setted! (%.2f%%)' % (SELL_OPTION['minimum']['percentage'] * 100))
     
     ## Setting static
     if SELL_OPTION['static']['enabled'] is True:
       if SELL_OPTION['static']['percentage'] < SELL_OPTION['minimum']['percentage']:
         SELL_OPTION['static']['percentage'] = SELL_OPTION['minimum']['percentage']
-        LOGGER.info('static > percentage re-setted! (%.2f%%)' % (SELL_OPTION['static']['percentage']))
+        LOGGER.info('static > percentage re-setted! (%.2f%%)' % (SELL_OPTION['static']['percentage'] * 100))
     
     ## Setting stats
     if SELL_OPTION['stats']['enabled'] is True:
       if SELL_OPTION['stats']['percentage']['KOSPI']['percentage'] < SELL_OPTION['minimum']['percentage']:
         SELL_OPTION['stats']['percentage']['KOSPI']['percentage'] = SELL_OPTION['minimum']['percentage']
-        LOGGER.info('stats > percentage > KOSPI re-setted! (%.2f%%)' % (SELL_OPTION['stats']['percentage']['KOSPI']['percentage']))
+        LOGGER.info('stats > percentage > KOSPI re-setted! (%.2f%%)' % (SELL_OPTION['stats']['percentage']['KOSPI']['percentage'] * 100))
 
       if SELL_OPTION['stats']['percentage']['KOSDAQ']['percentage'] < SELL_OPTION['minimum']['percentage']:
         SELL_OPTION['stats']['percentage']['KOSDAQ']['percentage'] = SELL_OPTION['minimum']['percentage']
-        LOGGER.info('stats > percentage > KOSDAQ re-setted! (%.2f%%)' % (SELL_OPTION['stats']['percentage']['KOSDAQ']['percentage']))
+        LOGGER.info('stats > percentage > KOSDAQ re-setted! (%.2f%%)' % (SELL_OPTION['stats']['percentage']['KOSDAQ']['percentage'] * 100))
 
     LOGGER.debug(STOCKER_OPTION)
     LOGGER.debug(SYSTEM_OPTION)

@@ -639,6 +639,8 @@ class Kiwoom(QAxWidget):
         dict_holding["보유수량"] = util.safe_cast(dict_holding["보유수량"], int, 0)
         dict_holding["매매가능수량"] = util.safe_cast(dict_holding["매매가능수량"], int, 0)
         dict_holding["현재가"] = abs(util.safe_cast(dict_holding["현재가"], int, 0))
+        dict_holding["전일매수수량"] = util.safe_cast(dict_holding["전일매수수량"], int, 0)
+        dict_holding["전일매도수량"] = util.safe_cast(dict_holding["전일매도수량"], int, 0)
         dict_holding["금일매수수량"] = util.safe_cast(dict_holding["금일매수수량"], int, 0)
         dict_holding["금일매도수량"] = util.safe_cast(dict_holding["금일매도수량"], int, 0)
         dict_holding["매입금액"] = util.safe_cast(dict_holding["매입금액"], int, 0)
