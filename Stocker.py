@@ -1832,8 +1832,11 @@ def fnLoadingOptions():
 
         if 'auto_minimum_profit_cut' in SELL_OPTION and SELL_OPTION['auto_minimum_profit_cut'] is True:
           LOGGER.debug('auto_minimum_profit_cut is True!')
-          trend = fnGetProfitCutStats(30)
-          trend = (trend['KOSPI']['avg_profit_rate'] + trend['KOSPI']['avg_profit_rate']) / 2
+          stats30 = fnGetProfitCutStats(30)
+          trend = (stats30['KOSPI']['avg_profit_rate'] + stats30['KOSDAQ']['avg_profit_rate']) / 2
+
+          LOGGER.debug('stats 30days KOSPI: %.2f%%, KOSDAQ: %.2f%%' % (stats30['KOSPI']['avg_profit_rate'], stats30['KOSDAQ']['avg_profit_rate']))
+          LOGGER.debug('stats trend is %.2f%%' % (trend))
 
           if trend < 0:
             SELL_OPTION['minimum_profit_cut_percentage'] = 3.0
