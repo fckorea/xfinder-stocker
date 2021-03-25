@@ -87,6 +87,18 @@ class Kiwoom(QAxWidget):
     self.event = None
     self.result = {}
 
+    # 문자열데이터 키
+    self.str_data_key = [
+      "계좌번호",
+      "주문번호",
+      "종목코드",
+      "종목명",
+      "원주문번호",
+      "화면번호",
+      "터미널번호",
+      "신용구분"
+    ]
+
     self.LOGGER = None
 
     # Setting Logger
@@ -279,6 +291,7 @@ class Kiwoom(QAxWidget):
     """
     res = self.kiwoom_SetInputValue("종목코드", strCode)
     res = self.kiwoom_CommRqData("주식기본정보", "OPT10001", 0, viewNumber)
+    self.result['주식기본정보'] = res
     return res
 
   @SyncRequestDecorator.kiwoom_sync_request
@@ -376,7 +389,9 @@ class Kiwoom(QAxWidget):
         "d+2출금가능금액"
       ]
       
-      self.result[sRQName] = { item_name: util.safe_cast(self.kiwoom_GetCommData(sTRCode, sRQName, 0, item_name).strip(), int, 0) for item_name in list_item_name }
+      self.result[sRQName] = {
+        item_name: util.auto_cast(self.kiwoom_GetCommData(sTRCode, sRQName, 0, item_name).strip()) if item_name not in self.str_data_key else self.kiwoom_GetCommData(sTRCode, sRQName, 0, item_name).strip() for item_name in list_item_name
+      }
       
       self.LOGGER.debug("예수금상세현황요청: %s" % (self.result))
       if "예수금상세현황요청" in self.dict_callback:
@@ -405,26 +420,60 @@ class Kiwoom(QAxWidget):
         "출력건수"
       ]
       
-      self.result[sRQName] = { item_name: util.safe_cast(self.kiwoom_GetCommData(sTRCode, sRQName, 0, item_name).strip(), int, 0) for item_name in list_item_name }
+      self.result[sRQName] = {
+        item_name: util.auto_cast(self.kiwoom_GetCommData(sTRCode, sRQName, 0, item_name).strip()) if item_name not in self.str_data_key else self.kiwoom_GetCommData(sTRCode, sRQName, 0, item_name).strip() for item_name in list_item_name
+      }
       
       self.LOGGER.debug("계좌평가현황요청: %s" % (self.result))
       if "계좌평가현황요청" in self.dict_callback:
         self.dict_callback["계좌평가현황요청"](self.result[sRQName])
 
     elif sRQName == "주식기본정보":
-      cnt = self.kiwoom_GetRepeatCnt(sTRCode, sRQName)
-      list_item_name = ["종목명", "현재가", "등락율", "거래량"]
-      종목코드 = self.kiwoom_GetCommData(sTRCode, sRQName, 0, "종목코드")
-      종목코드 = 종목코드.strip()
-      dict_stock = self.dict_stock.get(종목코드, {})
-      for item_name in list_item_name:
-        item_value = self.kiwoom_GetCommData(sTRCode, sRQName, 0, item_name)
-        item_value = item_value.strip()
-        dict_stock[item_name] = item_value
-      self.dict_stock[종목코드] = dict_stock
-      self.LOGGER.debug("주식기본정보: %s, %s" % (종목코드, dict_stock))
+      self.result[sRQName] = {}
+      list_item_name = [
+        "종목코드",
+        "종목명",
+        "결산월",
+        "액면가",
+        "자본금",
+        "상장주식",
+        "연중최고",
+        "연중최저",
+        "시가총액",
+        "시가총액비중",
+        "외인소진률",
+        "대용가",
+        "PER",
+        "EPS",
+        "ROE",
+        "PBR",
+        "EV",
+        "BPS",
+        "매출액",
+        "영업이익",
+        "당기순이익",
+        "시가",
+        "고가",
+        "저가",
+        "상한가",
+        "기준가",
+        "현재가",
+        "전일대비",
+        "등락율",
+        "거래량",
+        "거래대비",
+        "액면가단위",
+        "유통주식",
+        "유통비율"
+      ]
+      
+      self.result[sRQName] = {
+        item_name: util.auto_cast(self.kiwoom_GetCommData(sTRCode, sRQName, 0, item_name).strip()) if item_name not in self.str_data_key else self.kiwoom_GetCommData(sTRCode, sRQName, 0, item_name).strip() for item_name in list_item_name
+      }
+      
+      self.LOGGER.debug("주식기본정보: %s, %s" % (self.result[sRQName]['종목코드'], self.result[sRQName]))
       if "주식기본정보" in self.dict_callback:
-        self.dict_callback["주식기본정보"](dict_stock)
+        self.dict_callback["주식기본정보"](self.result[sRQName])
 
     elif sRQName == "시세표성정보":
       cnt = self.kiwoom_GetRepeatCnt(sTRCode, sRQName)
@@ -575,12 +624,15 @@ class Kiwoom(QAxWidget):
           "만기일"
         ]
 
-        dict_holding = { item_name: self.kiwoom_GetCommData(sTRCode, sRQName, nIdx, item_name).strip() for item_name in list_item_name }
+        # dict_holding = { item_name: self.kiwoom_GetCommData(sTRCode, sRQName, nIdx, item_name).strip() for item_name in list_item_name }
+        dict_holding = {
+          item_name: util.auto_cast(self.kiwoom_GetCommData(sTRCode, sRQName, nIdx, item_name).strip()) if item_name not in self.str_data_key else self.kiwoom_GetCommData(sTRCode, sRQName, nIdx, item_name).strip() for item_name in list_item_name
+        }
 
-        dict_holding["현재가"] = abs(util.safe_cast(dict_holding["현재가"], int, 0))
-        dict_holding["매입가"] = util.safe_cast(dict_holding["매입가"], int, 0)
-        dict_holding["매입금액"] = util.safe_cast(dict_holding["매입금액"], int, 0)
-        dict_holding["보유수량"] = util.safe_cast(dict_holding["보유수량"], int, 0)
+        # dict_holding["현재가"] = abs(util.safe_cast(dict_holding["현재가"], int, 0))
+        # dict_holding["매입가"] = util.safe_cast(dict_holding["매입가"], int, 0)
+        # dict_holding["매입금액"] = util.safe_cast(dict_holding["매입금액"], int, 0)
+        # dict_holding["보유수량"] = util.safe_cast(dict_holding["보유수량"], int, 0)
 
         if dict_holding["보유수량"] == 0:
           continue
@@ -627,29 +679,32 @@ class Kiwoom(QAxWidget):
           "대출일"
         ]
 
-        dict_holding = { item_name: self.kiwoom_GetCommData(sTRCode, sRQName, nIdx, item_name).strip() for item_name in list_item_name }
+        # dict_holding = { item_name: self.kiwoom_GetCommData(sTRCode, sRQName, nIdx, item_name).strip() for item_name in list_item_name }
+        dict_holding = {
+          item_name: util.auto_cast(self.kiwoom_GetCommData(sTRCode, sRQName, nIdx, item_name).strip()) if item_name not in self.str_data_key else self.kiwoom_GetCommData(sTRCode, sRQName, nIdx, item_name).strip() for item_name in list_item_name
+        }
 
         dict_holding["종목코드"] = dict_holding["종목번호"]
         del dict_holding["종목번호"]
 
-        dict_holding["평가손익"] = util.safe_cast(dict_holding["평가손익"], int, 0)
-        dict_holding["수익률(%)"] = util.safe_cast(dict_holding["수익률(%)"], float, 0)
-        dict_holding["매입가"] = util.safe_cast(dict_holding["매입가"], int, 0)
-        dict_holding["전일종가"] = util.safe_cast(dict_holding["전일종가"], int, 0)
-        dict_holding["보유수량"] = util.safe_cast(dict_holding["보유수량"], int, 0)
-        dict_holding["매매가능수량"] = util.safe_cast(dict_holding["매매가능수량"], int, 0)
-        dict_holding["현재가"] = abs(util.safe_cast(dict_holding["현재가"], int, 0))
-        dict_holding["전일매수수량"] = util.safe_cast(dict_holding["전일매수수량"], int, 0)
-        dict_holding["전일매도수량"] = util.safe_cast(dict_holding["전일매도수량"], int, 0)
-        dict_holding["금일매수수량"] = util.safe_cast(dict_holding["금일매수수량"], int, 0)
-        dict_holding["금일매도수량"] = util.safe_cast(dict_holding["금일매도수량"], int, 0)
-        dict_holding["매입금액"] = util.safe_cast(dict_holding["매입금액"], int, 0)
-        dict_holding["매입수수료"] = util.safe_cast(dict_holding["매입수수료"], int, 0)
-        dict_holding["평가금액"] = util.safe_cast(dict_holding["평가금액"], int, 0)
-        dict_holding["평가수수료"] = util.safe_cast(dict_holding["평가수수료"], int, 0)
-        dict_holding["세금"] = util.safe_cast(dict_holding["세금"], int, 0)
-        dict_holding["수수료합"] = util.safe_cast(dict_holding["수수료합"], int, 0)
-        dict_holding["보유비중(%)"] = util.safe_cast(dict_holding["보유비중(%)"], float, 0)
+        # dict_holding["평가손익"] = util.safe_cast(dict_holding["평가손익"], int, 0)
+        # dict_holding["수익률(%)"] = util.safe_cast(dict_holding["수익률(%)"], float, 0)
+        # dict_holding["매입가"] = util.safe_cast(dict_holding["매입가"], int, 0)
+        # dict_holding["전일종가"] = util.safe_cast(dict_holding["전일종가"], int, 0)
+        # dict_holding["보유수량"] = util.safe_cast(dict_holding["보유수량"], int, 0)
+        # dict_holding["매매가능수량"] = util.safe_cast(dict_holding["매매가능수량"], int, 0)
+        # dict_holding["현재가"] = abs(util.safe_cast(dict_holding["현재가"], int, 0))
+        # dict_holding["전일매수수량"] = util.safe_cast(dict_holding["전일매수수량"], int, 0)
+        # dict_holding["전일매도수량"] = util.safe_cast(dict_holding["전일매도수량"], int, 0)
+        # dict_holding["금일매수수량"] = util.safe_cast(dict_holding["금일매수수량"], int, 0)
+        # dict_holding["금일매도수량"] = util.safe_cast(dict_holding["금일매도수량"], int, 0)
+        # dict_holding["매입금액"] = util.safe_cast(dict_holding["매입금액"], int, 0)
+        # dict_holding["매입수수료"] = util.safe_cast(dict_holding["매입수수료"], int, 0)
+        # dict_holding["평가금액"] = util.safe_cast(dict_holding["평가금액"], int, 0)
+        # dict_holding["평가수수료"] = util.safe_cast(dict_holding["평가수수료"], int, 0)
+        # dict_holding["세금"] = util.safe_cast(dict_holding["세금"], int, 0)
+        # dict_holding["수수료합"] = util.safe_cast(dict_holding["수수료합"], int, 0)
+        # dict_holding["보유비중(%)"] = util.safe_cast(dict_holding["보유비중(%)"], float, 0)
 
         if dict_holding["보유수량"] == 0:
           continue
@@ -692,6 +747,12 @@ class Kiwoom(QAxWidget):
 
     if sRealType == "주식체결":
       pass
+    
+    elif sRealType == '장운영구분':
+      self.LOGGER.debug(sRealData)
+      gubun =  self.GetCommRealData(sCode, 215)
+      remained_time =  self.GetCommRealData(sCode, 214)
+      print(gubun, remained_time)
 
   def kiwoom_SetRealReg(self, strScreenNo, strCodeList, strFidList, strOptType):
     """
@@ -704,7 +765,20 @@ class Kiwoom(QAxWidget):
     :param str:
     :return:
     """
+    print('======================== set real reg %s' % (strFidList))
     lRet = self.dynamicCall("SetRealReg(QString, QString, QString, QString)", [strScreenNo, strCodeList, strFidList, strOptType])
+    return lRet
+
+  def kiwoom_DisConnectRealData(self, strScreenNo):
+    """
+    DisConnectRealData(
+      BSTR strScreenNo    // 화면번호
+      )
+    :param str:
+    :return:
+    """
+    print('======================== DisConnectRealData %s' % (strScreenNo))
+    lRet = self.dynamicCall("DisConnectRealData(QString)", [strScreenNo])
     return lRet
 
   # -------------------------------------
@@ -864,6 +938,12 @@ class Kiwoom(QAxWidget):
     """
     self.LOGGER.debug("주문/잔고: %s %s %s %s" % (sScrNo, sRQName, sTrCode, sMsg))
 
+    if sMsg.startswith('[505217]') or sMsg.startswith('[571489]') or ' 장종료 ' in sMsg:
+      if sTrCode.startswith('KOA_NORMAL_BUY_'):
+        self.LOGGER.debug('BUY ORDER END %s' % (sMsg))
+      elif sTrCode.startswith('KOA_NORMAL_SELL_'):
+        self.LOGGER.debug('SELL ORDER END %s' % (sMsg))
+
   def kiwoom_OnReceiveChejanData(self, sGubun, nItemCnt, sFIdList, **kwargs):
     """주문접수, 체결, 잔고발생시
     :param sGubun: 체결구분 접수와 체결시 '0'값, 국내주식 잔고전달은 '1'값, 파생잔고 전달은 '4"
@@ -919,6 +999,7 @@ class Kiwoom(QAxWidget):
     :return:
     """
     self.LOGGER.debug("체결/잔고: %s %s %s" % (sGubun, nItemCnt, sFIdList))
+
     if sGubun == '0':
       list_item_name = ["계좌번호", "주문번호", "관리자사번", "종목코드", "주문업무분류",
                 "주문상태", "종목명", "주문수량", "주문가격", "미체결수량",
@@ -934,28 +1015,21 @@ class Kiwoom(QAxWidget):
               27, 28, 914, 915, 938,
               939, 919, 920, 921, 922,
               923]
-      dict_contract = {item_name: self.kiwoom_GetChejanData(item_id).strip() for item_name, item_id in zip(list_item_name, list_item_id)}
-
-      # 종목코드에서 'A' 제거
-      종목코드 = dict_contract["종목코드"]
-      if 'A' <= 종목코드[0] <= 'Z' or 'a' <= 종목코드[0] <= 'z':
-        종목코드 = 종목코드[1:]
-        dict_contract["종목코드"] = 종목코드
-
-      # 종목을 대기 리스트에서 제거
-      #if 종목코드 in self.set_stock_ordered:
-      #  self.set_stock_ordered.remove(종목코드)
-
-      # 매수 체결일 경우 보유종목에 빈 dict 추가 (키만 추가하기 위해)
-      if "매수" in dict_contract["주문구분"]:
-        self.dict_holding[종목코드] = {}
-      # 매도 체결일 경우 보유종목에서 제거
-      else:
-        self.dict_holding.pop(종목코드, None)
+      # dict_contract = {item_name: self.kiwoom_GetChejanData(item_id).strip() for item_name, item_id in zip(list_item_name, list_item_id)}
+      dict_contract = {
+        item_name: util.auto_cast(self.kiwoom_GetChejanData(item_id).strip()) if item_name not in self.str_data_key else self.kiwoom_GetChejanData(item_id).strip() for item_name, item_id in zip(list_item_name, list_item_id)
+      }
 
       self.LOGGER.debug("체결: %s" % (dict_contract,))
 
-    if sGubun == '1':
+      if dict_contract['주문상태'] == '체결':
+        # if int(dict_contract['미체결수량']) == 0:
+        #   if '주문체결' in self.dict_callback:
+        #     self.dict_callback['주문체결'](dict_contract)
+        if '주문체결' in self.dict_callback:
+          self.dict_callback['주문체결'](dict_contract)
+
+    elif sGubun == '1':
       list_item_name = ["계좌번호", "종목코드", "신용구분", "대출일", "종목명",
                 "현재가", "보유수량", "매입단가", "총매입가", "주문가능수량",
                 "당일순매수량", "매도매수구분", "당일총매도손일", "예수금", "매도호가",
@@ -969,20 +1043,18 @@ class Kiwoom(QAxWidget):
               918, 990, 991, 992, 993,
               959, 924]
       dict_holding = {item_name: self.kiwoom_GetChejanData(item_id).strip() for item_name, item_id in zip(list_item_name, list_item_id)}
-      dict_holding["현재가"] = util.safe_cast(dict_holding["현재가"], int, 0)
-      dict_holding["보유수량"] = util.safe_cast(dict_holding["보유수량"], int, 0)
-      dict_holding["매입단가"] = util.safe_cast(dict_holding["매입단가"], int, 0)
-      dict_holding["총매입가"] = util.safe_cast(dict_holding["총매입가"], int, 0)
-      dict_holding["주문가능수량"] = util.safe_cast(dict_holding["주문가능수량"], int, 0)
+      dict_holding = {
+        item_name: util.auto_cast(self.kiwoom_GetChejanData(item_id).strip()) if item_name not in self.str_data_key else self.kiwoom_GetChejanData(item_id).strip() for item_name, item_id in zip(list_item_name, list_item_id)
+      }
 
-      # 종목코드에서 'A' 제거
-      종목코드 = dict_holding["종목코드"]
-      if 'A' <= 종목코드[0] <= 'Z' or 'a' <= 종목코드[0] <= 'z':
-        종목코드 = 종목코드[1:]
-        dict_holding["종목코드"] = 종목코드
+      # # 종목코드에서 'A' 제거
+      # 종목코드 = dict_holding["종목코드"]
+      # if 'A' <= 종목코드[0] <= 'Z' or 'a' <= 종목코드[0] <= 'z':
+      #   종목코드 = 종목코드[1:]
+      #   dict_holding["종목코드"] = 종목코드
 
-      # 보유종목 리스트에 추가
-      self.dict_holding[종목코드] = dict_holding
+      # # 보유종목 리스트에 추가
+      # self.dict_holding[종목코드] = dict_holding
 
       self.LOGGER.debug("잔고: %s" % (dict_holding,))
 

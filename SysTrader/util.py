@@ -97,7 +97,31 @@ class util:
     try:
       return to_type(val)
     except (ValueError, TypeError):
+      if default is None:
+        return val
       return default
+
+  def auto_cast(val):
+    def safe_cast(val, to_type, default=None):
+      try:
+        return to_type(val)
+      except (ValueError, TypeError):
+        if default is None:
+          return val
+        return default
+
+    try:
+      if '.' in val:
+        if type(safe_cast(val, float)) == float:
+          return safe_cast(val, float)
+      else:
+        if type(safe_cast(val, int)) == int:
+          return safe_cast(val, int)
+        else:
+          return val
+    except:
+      return val
+    return val
 
   dict_conv = {
     '종목코드': ('code', str),
