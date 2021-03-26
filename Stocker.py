@@ -129,8 +129,14 @@ TODAY_TRADING_LIST = {
 }
 
 WORKER = {
-  'buy': None,
-  'sell': None
+  'buy': {
+    'status': 0,  # 0 not done, 1 done
+    'th': None
+  },
+  'sell': {
+    'status': 0,  # 0 not done, 1 done
+    'th': None
+  }
 }
 
 KRX_CALENDAR = get_calendar('XKRX')
@@ -144,7 +150,7 @@ class TerminateWorker(QThread):
     global APP
 
     while(True):
-      if (WORKER['sell'] is not None and WORKER['sell'].isRunning() is False) and (WORKER['buy'] is not None and WORKER['buy'].isRunning() is False):
+      if (WORKER['sell']['th'] is not None and WORKER['sell']['th'].isRunning() is False) and (WORKER['buy']['th'] is not None and WORKER['buy']['th'].isRunning() is False):
         LOGGER.debug('SELL, BUY WORKER is terminated!')
         if len(list(filter(lambda x: x['order_info']['status'] == 0, TODAY_TRADING_LIST['buy']))) == 0 and len(list(filter(lambda x: x['order_info']['status'] == 0, TODAY_TRADING_LIST['sell']))) == 0:
           LOGGER.debug('ORDER COMPLETE!')
@@ -195,6 +201,8 @@ class SellWorker(QThread):
     global WORKER
 
     while True:
+      WORKER['sell']['status'] = 0
+
       LOGGER.info('<<<<< CHECK SELL >>>>>')
 
       LOGGER.debug(ACCOUNT_INFO)
@@ -232,17 +240,25 @@ class SellWorker(QThread):
         LOGGER.info('Send Order (%s, %s, %d, %d)' % (order_sell['order_info']['symbol_code'], order_sell['order_info']['name'], order_sell['order_info']['trade_price'], order_sell['order_info']['quantity']))
         TRADER.kiwoom_SendOrder('STOCKER_SELL_ORDER', '2222', ACCOUNT_INFO['account_number'], 2, order_sell['order_info']['symbol_code'], order_sell['order_info']['quantity'], 0, '03', '')
         TODAY_TRADING_LIST['sell'].append(order_sell)
+      
+      WORKER['sell']['status'] = 1
 
       time.sleep(STOCKER_OPTION['realtime_interval'])
 
       if STOCKER_OPTION['mode'] == 1:
-        LOGGER.info('STOCKER MODE IS 1, WAIT SELL ORDER COMPLETE!')
+        LOGGER.info('STOCKER MODE IS 1, WAIT FOR SELL ORDER COMPLETE!')
         while True:
           if len(list(filter(lambda x: x['order_info']['status'] == 0, TODAY_TRADING_LIST['sell']))) == 0:
             LOGGER.info('SELL ORDER COMPLETE!')
             break
           time.sleep(1)
         break
+      elif STOCKER_OPTION['mode'] == 2:
+        LOGGER.info('STOCKER MODE IS 2, WAIT FOR BUY WORKER TO BE DONE!!')
+        while True:
+          if WORKER['buy']['status'] is not None and WORKER['buy']['status'] == 1:
+            break
+          time.sleep(1)
 
     time.sleep(3)
     LOGGER.info('<<<<< END OF SELL WORKER >>>>>')
@@ -260,13 +276,21 @@ class BuyWorker(QThread):
     global WORKER
 
     if STOCKER_OPTION['mode'] == 1:
-      LOGGER.info('STOCKER MODE IS 1, Wait SELL WORKER!!')
+      LOGGER.info('STOCKER MODE IS 1, WAIT FOR SELL WORKER TO BE TERMINATED!!')
       while True:
-        if WORKER['sell'] is not None and WORKER['sell'].isRunning() is False:
+        if WORKER['sell']['th'] is not None and WORKER['sell']['th'].isRunning() is False:
           break
         time.sleep(1)
 
     while True:
+      if STOCKER_OPTION['mode'] == 2:
+        LOGGER.info('STOCKER MODE IS 2, WAIT FOR SELL WORKER TO DONE!!')
+        while True:
+          if WORKER['sell']['status'] is not None and WORKER['sell']['status'] == 1:
+            break
+          time.sleep(1)
+      
+      WORKER['buy']['status'] = 0
       LOGGER.info('<<<<< CHECK BUY >>>>>')
 
       LOGGER.debug(ACCOUNT_INFO)
@@ -309,6 +333,8 @@ class BuyWorker(QThread):
           LOGGER.info('Send Order (%s, %s, %d, %d)' % (order_buy['order_info']['symbol_code'], order_buy['order_info']['name'], order_buy['order_info']['trade_price'], order_buy['order_info']['quantity']))
           TRADER.kiwoom_SendOrder('STOCKER_BUY_ORDER', '1111', ACCOUNT_INFO['account_number'], 1, order_buy['order_info']['symbol_code'], order_buy['order_info']['quantity'], 0, '03', '')
           TODAY_TRADING_LIST['buy'].append(order_buy)
+
+      WORKER['sell']['status'] = 1
 
       time.sleep(STOCKER_OPTION['realtime_interval'])
 
@@ -678,13 +704,13 @@ def fnMain(argOptions, argArgs):
     # End of TEST
 
     # EXECUTE SELL WORKER
-    WORKER['sell'] = SellWorker()
-    WORKER['sell'].start()
+    WORKER['sell']['th'] = SellWorker()
+    WORKER['sell']['th'].start()
     # END OF SELL
     
     # EXECUTE BUY WORKER
-    WORKER['buy'] = BuyWorker()
-    WORKER['buy'].start()
+    WORKER['buy']['th'] = BuyWorker()
+    WORKER['buy']['th'].start()
     # END OF BUY
 
     APP.exec_()
@@ -752,7 +778,7 @@ def fnGetConsensusInfo(argBuyOption):
     today = datetime.today().strftime("%Y-%m-%d")
     
     # TEST
-    today = '2021-03-25'
+    # today = '2021-03-25'
     # End of TEST
 
     for target in data.keys():
@@ -891,8 +917,9 @@ def fnLoadingOptions():
 
   try:
     # Loading Stocker Option
-    if 'stcoker_option' in CONFIG:
-      STOCKER_OPTION.update(CONFIG['stcoker_option'])
+    if 'stocker_option' in CONFIG:
+      print(CONFIG['stocker_option'])
+      STOCKER_OPTION.update(CONFIG['stocker_option'])
 
     # Loading System Option
     if 'system_option' in CONFIG:
