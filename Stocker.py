@@ -151,12 +151,12 @@ class TerminateWorker(QThread):
 
     while(True):
       if (WORKER['sell']['th'] is not None and WORKER['sell']['th'].isRunning() is False) and (WORKER['buy']['th'] is not None and WORKER['buy']['th'].isRunning() is False):
-        LOGGER.debug('SELL, BUY WORKER is terminated!')
-        if len(list(filter(lambda x: x['order_info']['status'] == 0, TODAY_TRADING_LIST['buy']))) == 0 and len(list(filter(lambda x: x['order_info']['status'] == 0, TODAY_TRADING_LIST['sell']))) == 0:
-          LOGGER.debug('ORDER COMPLETE!')
+        LOGGER.info('[APP WORKER] SELL, BUY WORKER is terminated!')
+        if len(list(filter(lambda x: x['order_info']['done'] == False, TODAY_TRADING_LIST['buy']))) == 0 and len(list(filter(lambda x: x['order_info']['done'] == False, TODAY_TRADING_LIST['sell']))) == 0:
+          LOGGER.info('[APP WORKER] ORDER COMPLETE!')
           APP.quit()
         else:
-          LOGGER.debug('BUT, THE ORDER HAS NOT BEEN COMPLETE!')
+          LOGGER.debug('[APP WORKER] BUT, THE ORDER HAS NOT BEEN COMPLETE!')
       time.sleep(5)
 
 def orderCompleteCallback(argData):
@@ -181,11 +181,15 @@ def orderCompleteCallback(argData):
     if len(list(filter(lambda x: x['order_info']['symbol_code'] == symbol_code, TODAY_TRADING_LIST[target]))) == 1:
       idx = list(map(lambda x: x['order_info']['symbol_code'], TODAY_TRADING_LIST[target])).index(symbol_code)
       if idx != -1:
-        TODAY_TRADING_LIST[target][idx]['order_info']['status'] = 1
+        order_info = TODAY_TRADING_LIST[target][idx]['order_info']
+
+        LOGGER.info('Complate %s Order (%s, %s, %s, %s)!' % (target.capitalize(), symbol_code, order_info['name'], fnCommify(order_info['trade_price']), fnCommify(order_info['quantity'])))
+
+        TODAY_TRADING_LIST[target][idx]['order_info']['done'] = True
         TODAY_TRADING_LIST[target][idx]['order_result'] = argData
         LOGGER.debug(TODAY_TRADING_LIST[target][idx])
     else:
-      LOGGER.debug('It\'s my order!')
+      LOGGER.debug('It\'s not my order!')
       LOGGER.debug(argData)
 
 class SellWorker(QThread):
@@ -214,6 +218,8 @@ class SellWorker(QThread):
       sell_list = fnCheckSellStocks(ACCOUNT_INFO['holding_stocks'])
       order_sell_list = []
 
+      LOGGER.info('[SELL WORKER] Checked Sell Stocks (Count: %d)' % (len(sell_list)))
+
       for sell_stock in sell_list:
         LOGGER.debug(sell_stock)
         # 종목코드에서 'A' 제거
@@ -225,7 +231,7 @@ class SellWorker(QThread):
           'info': sell_stock['info'],
           'reason': sell_stock['reason'],
           'order_info': {
-            'status': 0,
+            'done': False,
             'symbol_code': symbol_code,
             'name': sell_stock['info']['종목명'],
             'trade_price': abs(sell_stock['info']['현재가']),
@@ -236,8 +242,9 @@ class SellWorker(QThread):
         LOGGER.debug(sell_info)
         order_sell_list.append(sell_info)
       
+      LOGGER.info('[SELL WORKER] Checked trade price in sell stock (Count: %d)' % (len(order_sell_list)))
       for order_sell in order_sell_list:
-        LOGGER.info('Send Order (%s, %s, %d, %d)' % (order_sell['order_info']['symbol_code'], order_sell['order_info']['name'], order_sell['order_info']['trade_price'], order_sell['order_info']['quantity']))
+        LOGGER.info('[SELL WORKER] Send Order (%s, %s, %s, %s)' % (order_sell['order_info']['symbol_code'], fnCommify(order_sell['order_info']['name']), order_sell['order_info']['trade_price'], fnCommify(order_sell['order_info']['quantity'])))
         TRADER.kiwoom_SendOrder('STOCKER_SELL_ORDER', '2222', ACCOUNT_INFO['account_number'], 2, order_sell['order_info']['symbol_code'], order_sell['order_info']['quantity'], 0, '03', '')
         TODAY_TRADING_LIST['sell'].append(order_sell)
       
@@ -246,15 +253,15 @@ class SellWorker(QThread):
       time.sleep(STOCKER_OPTION['realtime_interval'])
 
       if STOCKER_OPTION['mode'] == 1:
-        LOGGER.info('STOCKER MODE IS 1, WAIT FOR SELL ORDER COMPLETE!')
+        LOGGER.info('[SELL WORKER] STOCKER MODE IS 1, WAIT FOR SELL ORDER COMPLETE!')
         while True:
-          if len(list(filter(lambda x: x['order_info']['status'] == 0, TODAY_TRADING_LIST['sell']))) == 0:
-            LOGGER.info('SELL ORDER COMPLETE!')
+          if len(list(filter(lambda x: x['order_info']['done'] == False, TODAY_TRADING_LIST['sell']))) == 0:
+            LOGGER.info('[SELL WORKER] SELL ORDER COMPLETE!')
             break
           time.sleep(1)
         break
       elif STOCKER_OPTION['mode'] == 2:
-        LOGGER.info('STOCKER MODE IS 2, WAIT FOR BUY WORKER TO BE DONE!!')
+        LOGGER.info('[SELL WORKER]STOCKER MODE IS 2, WAIT FOR BUY WORKER TO BE DONE!!')
         while True:
           if WORKER['buy']['status'] is not None and WORKER['buy']['status'] == 1:
             break
@@ -276,7 +283,7 @@ class BuyWorker(QThread):
     global WORKER
 
     if STOCKER_OPTION['mode'] == 1:
-      LOGGER.info('STOCKER MODE IS 1, WAIT FOR SELL WORKER TO BE TERMINATED!!')
+      LOGGER.info('[BUY WORKER] STOCKER MODE IS 1, WAIT FOR SELL WORKER TO BE TERMINATED!!')
       while True:
         if WORKER['sell']['th'] is not None and WORKER['sell']['th'].isRunning() is False:
           break
@@ -284,7 +291,7 @@ class BuyWorker(QThread):
 
     while True:
       if STOCKER_OPTION['mode'] == 2:
-        LOGGER.info('STOCKER MODE IS 2, WAIT FOR SELL WORKER TO DONE!!')
+        LOGGER.info('[BUY WORKER] STOCKER MODE IS 2, WAIT FOR SELL WORKER TO DONE!!')
         while True:
           if WORKER['sell']['status'] is not None and WORKER['sell']['status'] == 1:
             break
@@ -300,12 +307,14 @@ class BuyWorker(QThread):
       ACCOUNT_INFO = fnUpdateAccountInfo(TRADER, ACCOUNT_INFO['account_number'])
 
       if ACCOUNT_INFO['deposit'] < KIWOOM_OPTION['money_per_buy']:
-        LOGGER.info('주문 가능 금액이 설정된 종목당구매금액 보다 적어 구매를 할 수 없습니다.')
-        LOGGER.info('주문가능금액: %s원' % (fnCommify(ACCOUNT_INFO['deposit'])))
-        LOGGER.info('종목당구매금액: %s원' % (fnCommify(KIWOOM_OPTION['money_per_buy'])))
+        LOGGER.info('[BUY WORKER] 주문 가능 금액이 설정된 종목당구매금액 보다 적어 구매를 할 수 없습니다.')
+        LOGGER.info('[BUY WORKER] 주문가능금액: %s원' % (fnCommify(ACCOUNT_INFO['deposit'])))
+        LOGGER.info('[BUY WORKER] 종목당구매금액: %s원' % (fnCommify(KIWOOM_OPTION['money_per_buy'])))
       else:
         buy_list = fnCheckBuyStocks()
         order_buy_list = []
+
+        LOGGER.info('[BUY WORKER] Checked Buy Stocks (Count: %d)' % (len(buy_list)))
 
         for buy_stock in buy_list:
           LOGGER.debug(buy_stock)
@@ -318,7 +327,7 @@ class BuyWorker(QThread):
             buy_info = {
               'info': stock_info,
               'order_info': {
-                'status': 0,
+                'done': False,
                 'symbol_code': stock_info['종목코드'],
                 'name': stock_info['종목명'],
                 'trade_price': abs(stock_info['현재가']),
@@ -329,8 +338,10 @@ class BuyWorker(QThread):
             LOGGER.debug(buy_info)
             order_buy_list.append(buy_info)
         
+        LOGGER.info('[BUY WORKER] Checked trade price in buy stock (Count: %d)' % (len(order_buy_list)))
+
         for order_buy in order_buy_list:
-          LOGGER.info('Send Order (%s, %s, %d, %d)' % (order_buy['order_info']['symbol_code'], order_buy['order_info']['name'], order_buy['order_info']['trade_price'], order_buy['order_info']['quantity']))
+          LOGGER.info('[BUY WORKER] Send Order (%s, %s, %s, %s)' % (order_buy['order_info']['symbol_code'], order_buy['order_info']['name'], fnCommify(order_buy['order_info']['trade_price']), fnCommify(order_buy['order_info']['quantity'])))
           TRADER.kiwoom_SendOrder('STOCKER_BUY_ORDER', '1111', ACCOUNT_INFO['account_number'], 1, order_buy['order_info']['symbol_code'], order_buy['order_info']['quantity'], 0, '03', '')
           TODAY_TRADING_LIST['buy'].append(order_buy)
 
@@ -339,10 +350,10 @@ class BuyWorker(QThread):
       time.sleep(STOCKER_OPTION['realtime_interval'])
 
       if STOCKER_OPTION['mode'] == 1:
-        LOGGER.info('STOCKER MODE IS 1, WAIT BUY ORDER COMPLETE!')
+        LOGGER.info('[BUY WORKER] STOCKER MODE IS 1, WAIT BUY ORDER COMPLETE!')
         while True:
-          if len(list(filter(lambda x: x['order_info']['status'] == 0, TODAY_TRADING_LIST['buy']))) == 0:
-            LOGGER.info('BUY ORDER COMPLETE!')
+          if len(list(filter(lambda x: x['order_info']['done'] == False, TODAY_TRADING_LIST['buy']))) == 0:
+            LOGGER.info('[BUY WORKER] BUY ORDER COMPLETE!')
             break
           time.sleep(1)
         break
@@ -365,13 +376,13 @@ def fnCheckSellStocks(argHoldingStocks):
   LOGGER.debug('fnCheckSellStocks')
 
   # Notice Minimum Profit Cut
-  LOGGER.info('Minimum Profit Cut Percentage: %.2f%%' % (SELL_OPTION['minimum']['percentage'] * 100))
+  LOGGER.debug('Minimum Profit Cut Percentage: %.2f%%' % (SELL_OPTION['minimum']['percentage'] * 100))
 
   for stock in argHoldingStocks:
-    LOGGER.debug('Check %s, %s, %.2f%%' % (stock['종목코드'], stock['종목명'], stock['수익률(%)']))
+    LOGGER.info('Check %s, %s, %.2f%%' % (stock['종목코드'], stock['종목명'], stock['수익률(%)']))
 
     # Check Static Profit Cut
-    LOGGER.info('Check Static Profit Cut: %s (>=%.2f%%)' % (SELL_OPTION['static']['enabled'], SELL_OPTION['static']['percentage'] * 100))
+    LOGGER.debug('Check Static Profit Cut: %s (>=%.2f%%)' % (SELL_OPTION['static']['enabled'], SELL_OPTION['static']['percentage'] * 100))
     if SELL_OPTION['static']['enabled'] is True:
       profit_cut = (SELL_OPTION['static']['percentage'] * 100)
       reason = '>=%.2f%%(Static)' % (profit_cut)
@@ -382,7 +393,7 @@ def fnCheckSellStocks(argHoldingStocks):
         reason = '>=%.2f%%(Static<minimum>)' % (profit_cut)
 
       if stock['수익률(%)'] >= profit_cut:
-        LOGGER.info('%s is greater than static percentage(%.2f%%>=%.2f%%)' % (stock['종목명'], stock['수익률(%)'], profit_cut))
+        LOGGER.debug('%s is greater than static percentage(%.2f%%>=%.2f%%)' % (stock['종목명'], stock['수익률(%)'], profit_cut))
         if stock['종목코드'] not in sell_list:
           sell_list[stock['종목코드']] = {
             'info': stock,
@@ -391,7 +402,7 @@ def fnCheckSellStocks(argHoldingStocks):
         sell_list[stock['종목코드']]['reason'].append(reason)
 
     # Check Stats Profit Cut
-    LOGGER.info('Check Stats Profit Cut: %s, %ddays (>=%.2f%%[KOSPI], >=%.2f%%[KOSDAQ])' % (SELL_OPTION['stats']['enabled'], SELL_OPTION['stats']['days'], SELL_OPTION['stats']['percentage']['KOSPI']['percentage'] * 100, SELL_OPTION['stats']['percentage']['KOSDAQ']['percentage'] * 100))
+    LOGGER.debug('Check Stats Profit Cut: %s, %ddays (>=%.2f%%[KOSPI], >=%.2f%%[KOSDAQ])' % (SELL_OPTION['stats']['enabled'], SELL_OPTION['stats']['days'], SELL_OPTION['stats']['percentage']['KOSPI']['percentage'] * 100, SELL_OPTION['stats']['percentage']['KOSDAQ']['percentage'] * 100))
     if SELL_OPTION['stats']['enabled'] is True:
       market = stock['MORE_INFO']['market']
       profit_cut = SELL_OPTION['stats']['percentage'][market]['percentage'] * 100
@@ -403,7 +414,7 @@ def fnCheckSellStocks(argHoldingStocks):
         reason = '>=%.2f%%(Stats|%s)' % (profit_cut, market)
 
       if stock['수익률(%)'] >= profit_cut:
-        LOGGER.info('%s(%s) is greater than stats percentage(%.2f%%>=%.2f%%)' % (stock['종목명'], market, stock['수익률(%)'], profit_cut))
+        LOGGER.debug('%s(%s) is greater than stats percentage(%.2f%%>=%.2f%%)' % (stock['종목명'], market, stock['수익률(%)'], profit_cut))
         if stock['종목코드'] not in sell_list:
           sell_list[stock['종목코드']] = {
             'info': stock,
@@ -412,12 +423,12 @@ def fnCheckSellStocks(argHoldingStocks):
         sell_list[stock['종목코드']]['reason'].append(reason)
 
     # Check Target Price
-    LOGGER.info('Check Target Price Cut: %s' % (SELL_OPTION['target_price']['enabled']))
+    LOGGER.debug('Check Target Price Cut: %s' % (SELL_OPTION['target_price']['enabled']))
     if SELL_OPTION['target_price']['enabled'] is True:
       reason = '>=%s(TargetPrice>=%.2f%%)' % (stock['MORE_INFO']['target_price'], (SELL_OPTION['minimum']['percentage'] * 100))
 
       if stock['MORE_INFO']['target_price'] is not None and stock['현재가'] >= stock['MORE_INFO']['target_price']:
-        LOGGER.info('%s is greater than target price(%s>=%s)' % (stock['종목명'], fnCommify(stock['현재가']), fnCommify(stock['MORE_INFO']['target_price'])))
+        LOGGER.debug('%s is greater than target price(%s>=%s)' % (stock['종목명'], fnCommify(stock['현재가']), fnCommify(stock['MORE_INFO']['target_price'])))
 
         if stock['수익률(%)'] >= (SELL_OPTION['minimum']['percentage'] * 100):
           if stock['종목코드'] not in sell_list:
@@ -427,25 +438,27 @@ def fnCheckSellStocks(argHoldingStocks):
             }
           sell_list[stock['종목코드']]['reason'].append(reason)
         else:
-          LOGGER.info('%s : Profit(%.2f%%) is lower than minimum percentage(%.2f%%)' % (stock['종목명'], stock['수익률(%)'], SELL_OPTION['minimum']['percentage'] * 100))
+          LOGGER.debug('%s : Profit(%.2f%%) is lower than minimum percentage(%.2f%%)' % (stock['종목명'], stock['수익률(%)'], SELL_OPTION['minimum']['percentage'] * 100))
 
-  # Check No More Buy
+    # Check No More Buy
 
-  # Check Speed Mode
-  LOGGER.info('Check Speed Mode Profit Cut: %s (>=%.2f%%)' % (SELL_OPTION['speed_mode']['enabled'], SELL_OPTION['speed_mode']['percentage'] * 100))
-  if SELL_OPTION['speed_mode']['enabled'] is True:
-    profit_cut = (SELL_OPTION['speed_mode']['percentage'] * 100)
-    reason = '>=%.2f%%(Speed Mode)' % (SELL_OPTION['speed_mode']['percentage'] * 100)
+    # Check Speed Mode
+    LOGGER.debug('Check Speed Mode Profit Cut: %s (>=%.2f%%)' % (SELL_OPTION['speed_mode']['enabled'], SELL_OPTION['speed_mode']['percentage'] * 100))
+    if SELL_OPTION['speed_mode']['enabled'] is True:
+      profit_cut = (SELL_OPTION['speed_mode']['percentage'] * 100)
+      reason = '>=%.2f%%(Speed Mode)' % (SELL_OPTION['speed_mode']['percentage'] * 100)
 
-    if stock['수익률(%)'] >= profit_cut and len(list(filter(lambda x: x['order_info']['status'] == 0 and x['order_info'] == stock['종목코드']))) == 1:
-      LOGGER.info('%s(%s) is greater than speed mode percentage(%.2f%%>=%.2f%%)' % (stock['종목명'], market, stock['수익률(%)'], SELL_OPTION['speed_mode']['percentage'] * 100))
+      if stock['수익률(%)'] >= profit_cut and len(list(filter(lambda x: x['order_info']['done'] == True and x['order_info']['symbol_code'] == stock['종목코드'], TODAY_TRADING_LIST['buy']))) == 1:
+        LOGGER.debug('%s(%s) is greater than speed mode percentage(%.2f%%>=%.2f%%)' % (stock['종목명'], market, stock['수익률(%)'], SELL_OPTION['speed_mode']['percentage'] * 100))
 
-      if stock['종목코드'] not in sell_list:
-        sell_list[stock['종목코드']] = {
-          'info': stock,
-          'reason': []
-        }
-      sell_list[stock['종목코드']]['reason'].append(reason)
+        if stock['종목코드'] not in sell_list:
+          sell_list[stock['종목코드']] = {
+            'info': stock,
+            'reason': []
+          }
+        sell_list[stock['종목코드']]['reason'].append(reason)
+    
+    LOGGER.info('Decision to sell %s, %s, %.2f%% => %s %s' % (stock['종목코드'], stock['종목명'], stock['수익률(%)'], '*SELL*' if stock['종목코드'] in sell_list else '*NOT SELL*', '(REASON: %s)' % (', '.join(sell_list[stock['종목코드']]['reason'])) if stock['종목코드'] in sell_list else ''))
 
   return list(map(lambda x: sell_list[x], sell_list))
 
@@ -530,7 +543,7 @@ def fnLogin():
 
   LOGGER.debug('fnLogin')
 
-  trader = SysTrader.Kiwoom()
+  trader = SysTrader.Kiwoom(LOGGER)
 
   # login
   if trader.kiwoom_GetConnectState() == 0:
@@ -718,7 +731,7 @@ def fnMain(argOptions, argArgs):
     return True
   except:
     LOGGER.error(' *** Error in Main.')
-    LOGGER.debug(traceback.format_exc())
+    LOGGER.error(traceback.format_exc())
   finally:
     return True
 
@@ -938,6 +951,7 @@ def fnLoadingOptions():
       BUY_OPTION.update(CONFIG['buy_option'])
     
     # Loading Sell Option
+    LOGGER.debug(CONFIG)
     if 'sell_option' in CONFIG:
       SELL_OPTION.update(CONFIG['sell_option'])
       SELL_OPTION['stats']['percentage'] = fnGetProfitCutStats(SELL_OPTION['stats']['days'])
@@ -1203,7 +1217,7 @@ def fnReadJsonFile(argJsonFilePath):
       LOGGER.error(' * json file not found.')
   except:
     LOGGER.error(' *** Error read json file.')
-    LOGGER.debug(traceback.format_exc())
+    LOGGER.error(traceback.format_exc())
   finally:
     return res
 
@@ -1249,7 +1263,7 @@ def fnSetOptions():
 
   # Ref. https://docs.python.org/2/library/optparse.html#optparse-reference-guide
   options = [
-    { 'Param': ('-c', '--config'), 'action': 'store', 'type': 'string', 'dest': 'o_sConfigFilePath', 'default': 'config.conf', 'metavar': '<Config file path>', 'help': 'Set config file path.\t\tdefault) config.conf (contents type is JSON)' },
+    { 'Param': ('-c', '--config'), 'action': 'store', 'type': 'string', 'dest': 'o_sConfigFilePath', 'default': 'conf/config.conf', 'metavar': '<Config file path>', 'help': 'Set config file path.\t\tdefault) config.conf (contents type is JSON)' },
     { 'Param': ('-v', '--verbose'), 'action': 'store_true', 'dest': 'o_bVerbose', 'default': False, 'metavar': '<Verbose Mode>', 'help': 'Set verbose mode.\t\tdefault) False' }
   ]
   usage = '%prog [options] <File or Dir path>\n\tex) %prog test\\'
