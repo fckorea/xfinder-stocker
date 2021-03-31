@@ -47,7 +47,7 @@ CONFIG = {}
 STOCKER_OPTION = {
   # 1: 1day 1trading, 2: realtime trading
   'mode': 1,
-  'realtime_interval': 10
+  'realtime_interval': 1
 }
 SYSTEM_OPTION = {
   'auto_shutdown': False
@@ -55,7 +55,8 @@ SYSTEM_OPTION = {
 CONNECTION_OPTION = {
   'waiting': 600,
   'try_count': 3,
-  'wait_interval': 1 
+  'wait_interval': 0.5,
+  'maximum_wait': 10
 }
 KIWOOM_OPTION = {
   'money_per_buy': 250000
@@ -159,39 +160,6 @@ class TerminateWorker(QThread):
           LOGGER.debug('[APP WORKER] BUT, THE ORDER HAS NOT BEEN COMPLETE!')
       time.sleep(5)
 
-def orderCompleteCallback(argData):
-  global LOGGER
-
-  LOGGER.debug('ChejanDataCallback')
-
-  # 종목코드에서 'A' 제거
-  symbol_code = argData["종목코드"]
-  if 'A' <= symbol_code[0] <= 'Z' or 'a' <= symbol_code[0] <= 'z':
-    symbol_code = symbol_code[1:]
-
-  if int(argData['미체결수량']) == 0:
-    target = 'buy'
-
-    if '매도' in argData['주문구분']:
-      target = 'sell'
-      LOGGER.debug('매도 완료!')
-    elif '매수' in argData['주문구분']:
-      LOGGER.debug('매수 완료!')
-
-    if len(list(filter(lambda x: x['order_info']['symbol_code'] == symbol_code, TODAY_TRADING_LIST[target]))) == 1:
-      idx = list(map(lambda x: x['order_info']['symbol_code'], TODAY_TRADING_LIST[target])).index(symbol_code)
-      if idx != -1:
-        order_info = TODAY_TRADING_LIST[target][idx]['order_info']
-
-        LOGGER.info('Complate %s Order (%s, %s, %s, %s)!' % (target.capitalize(), symbol_code, order_info['name'], fnCommify(order_info['trade_price']), fnCommify(order_info['quantity'])))
-
-        TODAY_TRADING_LIST[target][idx]['order_info']['done'] = True
-        TODAY_TRADING_LIST[target][idx]['order_result'] = argData
-        LOGGER.debug(TODAY_TRADING_LIST[target][idx])
-    else:
-      LOGGER.debug('It\'s not my order!')
-      LOGGER.debug(argData)
-
 class SellWorker(QThread):
   def run(self):
     global LOGGER
@@ -207,7 +175,9 @@ class SellWorker(QThread):
     while True:
       WORKER['sell']['status'] = 0
 
-      LOGGER.info('<<<<< CHECK SELL >>>>>')
+      LOGGER.info('<<<<< START SELL WORKER >>>>>')
+
+      LOGGER.info('<<<<< CHECK SELL STOCKS >>>>>')
 
       LOGGER.debug(ACCOUNT_INFO)
       LOGGER.debug(KIWOOM_OPTION)
@@ -219,6 +189,7 @@ class SellWorker(QThread):
       order_sell_list = []
 
       LOGGER.info('[SELL WORKER] Checked Sell Stocks (Count: %d)' % (len(sell_list)))
+      LOGGER.info('<<<<< CHECKED SELL STOCKS >>>>>')
 
       for sell_stock in sell_list:
         LOGGER.debug(sell_stock)
@@ -243,12 +214,17 @@ class SellWorker(QThread):
         order_sell_list.append(sell_info)
       
       LOGGER.info('[SELL WORKER] Checked trade price in sell stock (Count: %d)' % (len(order_sell_list)))
-      for order_sell in order_sell_list:
-        LOGGER.info('[SELL WORKER] Send Order (%s, %s, %s, %s)' % (order_sell['order_info']['symbol_code'], fnCommify(order_sell['order_info']['name']), order_sell['order_info']['trade_price'], fnCommify(order_sell['order_info']['quantity'])))
-        TRADER.kiwoom_SendOrder('STOCKER_SELL_ORDER', '2222', ACCOUNT_INFO['account_number'], 2, order_sell['order_info']['symbol_code'], order_sell['order_info']['quantity'], 0, '03', '')
-        TODAY_TRADING_LIST['sell'].append(order_sell)
+
+      if len(order_sell_list) > 0:
+        LOGGER.info('<<<<< ORDER SELL STOCKS >>>>>')
+        for order_sell in order_sell_list:
+          LOGGER.info('[SELL WORKER] Send Order (%s, %s, %s, %s)' % (order_sell['order_info']['symbol_code'], fnCommify(order_sell['order_info']['name']), order_sell['order_info']['trade_price'], fnCommify(order_sell['order_info']['quantity'])))
+          TRADER.kiwoom_SendOrder('STOCKER_SELL_ORDER', '2222', ACCOUNT_INFO['account_number'], 2, order_sell['order_info']['symbol_code'], order_sell['order_info']['quantity'], 0, '03', '')
+          TODAY_TRADING_LIST['sell'].append(order_sell)
+        LOGGER.info('<<<<< SEND ORDER SELL STOCKS >>>>>')
       
       WORKER['sell']['status'] = 1
+      LOGGER.info('<<<<< DONE SELL WORKER >>>>>')
 
       time.sleep(STOCKER_OPTION['realtime_interval'])
 
@@ -258,17 +234,17 @@ class SellWorker(QThread):
           if len(list(filter(lambda x: x['order_info']['done'] == False, TODAY_TRADING_LIST['sell']))) == 0:
             LOGGER.info('[SELL WORKER] SELL ORDER COMPLETE!')
             break
-          time.sleep(1)
+          time.sleep(CONNECTION_OPTION['wait_interval'])
         break
       elif STOCKER_OPTION['mode'] == 2:
-        LOGGER.info('[SELL WORKER]STOCKER MODE IS 2, WAIT FOR BUY WORKER TO BE DONE!!')
+        LOGGER.info('[SELL WORKER] STOCKER MODE IS 2, WAIT FOR BUY WORKER TO BE DONE!!')
         while True:
           if WORKER['buy']['status'] is not None and WORKER['buy']['status'] == 1:
             break
-          time.sleep(1)
+          time.sleep(CONNECTION_OPTION['wait_interval'])
 
     time.sleep(3)
-    LOGGER.info('<<<<< END OF SELL WORKER >>>>>')
+    LOGGER.info('<<<<< TERMINATE SELL WORKER >>>>>')
 
 class BuyWorker(QThread):
   def run(self):
@@ -287,7 +263,7 @@ class BuyWorker(QThread):
       while True:
         if WORKER['sell']['th'] is not None and WORKER['sell']['th'].isRunning() is False:
           break
-        time.sleep(1)
+        time.sleep(CONNECTION_OPTION['wait_interval'])
 
     while True:
       if STOCKER_OPTION['mode'] == 2:
@@ -295,16 +271,19 @@ class BuyWorker(QThread):
         while True:
           if WORKER['sell']['status'] is not None and WORKER['sell']['status'] == 1:
             break
-          time.sleep(1)
-      
+          time.sleep(CONNECTION_OPTION['wait_interval'])
+
+      LOGGER.info('<<<<< START BUY WORKER >>>>>')
+
       WORKER['buy']['status'] = 0
-      LOGGER.info('<<<<< CHECK BUY >>>>>')
+
+      LOGGER.info('<<<<< CHECK BUY STOCKS >>>>>')
 
       LOGGER.debug(ACCOUNT_INFO)
       LOGGER.debug(KIWOOM_OPTION)
       LOGGER.debug(TODAY_ORDER_LIST)
 
-      ACCOUNT_INFO = fnUpdateAccountInfo(TRADER, ACCOUNT_INFO['account_number'])
+      ACCOUNT_INFO = fnUpdateAccountInfo(TRADER, ACCOUNT_INFO['account_number'], withHoldingStocks=False)
 
       if ACCOUNT_INFO['deposit'] < KIWOOM_OPTION['money_per_buy']:
         LOGGER.info('[BUY WORKER] 주문 가능 금액이 설정된 종목당구매금액 보다 적어 구매를 할 수 없습니다.')
@@ -315,6 +294,7 @@ class BuyWorker(QThread):
         order_buy_list = []
 
         LOGGER.info('[BUY WORKER] Checked Buy Stocks (Count: %d)' % (len(buy_list)))
+        LOGGER.info('<<<<< CHECKED BUY STOCKS >>>>>')
 
         for buy_stock in buy_list:
           LOGGER.debug(buy_stock)
@@ -340,26 +320,30 @@ class BuyWorker(QThread):
         
         LOGGER.info('[BUY WORKER] Checked trade price in buy stock (Count: %d)' % (len(order_buy_list)))
 
-        for order_buy in order_buy_list:
-          LOGGER.info('[BUY WORKER] Send Order (%s, %s, %s, %s)' % (order_buy['order_info']['symbol_code'], order_buy['order_info']['name'], fnCommify(order_buy['order_info']['trade_price']), fnCommify(order_buy['order_info']['quantity'])))
-          TRADER.kiwoom_SendOrder('STOCKER_BUY_ORDER', '1111', ACCOUNT_INFO['account_number'], 1, order_buy['order_info']['symbol_code'], order_buy['order_info']['quantity'], 0, '03', '')
-          TODAY_TRADING_LIST['buy'].append(order_buy)
+        if len(order_buy_list) > 0:
+          LOGGER.info('<<<<< ORDER BUY STOCKS >>>>>')
+          for order_buy in order_buy_list:
+            LOGGER.info('[BUY WORKER] Send Order (%s, %s, %s, %s)' % (order_buy['order_info']['symbol_code'], order_buy['order_info']['name'], fnCommify(order_buy['order_info']['trade_price']), fnCommify(order_buy['order_info']['quantity'])))
+            TRADER.kiwoom_SendOrder('STOCKER_BUY_ORDER', '1111', ACCOUNT_INFO['account_number'], 1, order_buy['order_info']['symbol_code'], order_buy['order_info']['quantity'], 0, '03', '')
+            TODAY_TRADING_LIST['buy'].append(order_buy)
+          LOGGER.info('<<<<< SEND ORDER BUY STOCKS >>>>>')
 
-      WORKER['sell']['status'] = 1
+      WORKER['buy']['status'] = 1
+      LOGGER.info('<<<<< DONE BUY WORKER >>>>>')
 
       time.sleep(STOCKER_OPTION['realtime_interval'])
-
+      
       if STOCKER_OPTION['mode'] == 1:
         LOGGER.info('[BUY WORKER] STOCKER MODE IS 1, WAIT BUY ORDER COMPLETE!')
         while True:
           if len(list(filter(lambda x: x['order_info']['done'] == False, TODAY_TRADING_LIST['buy']))) == 0:
             LOGGER.info('[BUY WORKER] BUY ORDER COMPLETE!')
             break
-          time.sleep(1)
+          time.sleep(CONNECTION_OPTION['wait_interval'])
         break
 
     time.sleep(3)
-    LOGGER.info('<<<<< END OF BUY WORKER >>>>>')
+    LOGGER.info('<<<<< TERMINATE BUY WORKER >>>>>')
 
 #=============================== Buy Sell Util Functions ===============================#
 def fnCheckSellStocks(argHoldingStocks):
@@ -387,7 +371,7 @@ def fnCheckSellStocks(argHoldingStocks):
       profit_cut = (SELL_OPTION['static']['percentage'] * 100)
       reason = '>=%.2f%%(Static)' % (profit_cut)
       
-      if SELL_OPTION['static']['percentage'] < SELL_OPTION['minimum']['percentage']:
+      if SELL_OPTION['static']['percentage'] < SELL_OPTION['minimum']['percentage'] * 100:
         LOGGER.debug('re-check profit cut (%.2f%% => %.2f%%)' % (profit_cut, (SELL_OPTION['minimum']['percentage'] * 100)))
         profit_cut = (SELL_OPTION['minimum']['percentage'] * 100)
         reason = '>=%.2f%%(Static<minimum>)' % (profit_cut)
@@ -408,7 +392,7 @@ def fnCheckSellStocks(argHoldingStocks):
       profit_cut = SELL_OPTION['stats']['percentage'][market]['percentage'] * 100
       reason = '>=%.2f%%(Stats|%s)' % (profit_cut, market)
       
-      if profit_cut < SELL_OPTION['minimum']['percentage']:
+      if profit_cut < SELL_OPTION['minimum']['percentage'] * 100:
         LOGGER.debug('re-check profit cut (%.2f%% => %.2f%%)' % (profit_cut, (SELL_OPTION['minimum']['percentage'] * 100)))
         profit_cut = (SELL_OPTION['minimum']['percentage'] * 100)
         reason = '>=%.2f%%(Stats|%s)' % (profit_cut, market)
@@ -448,15 +432,18 @@ def fnCheckSellStocks(argHoldingStocks):
       profit_cut = (SELL_OPTION['speed_mode']['percentage'] * 100)
       reason = '>=%.2f%%(Speed Mode)' % (SELL_OPTION['speed_mode']['percentage'] * 100)
 
-      if stock['수익률(%)'] >= profit_cut and len(list(filter(lambda x: x['order_info']['done'] == True and x['order_info']['symbol_code'] == stock['종목코드'], TODAY_TRADING_LIST['buy']))) == 1:
-        LOGGER.debug('%s(%s) is greater than speed mode percentage(%.2f%%>=%.2f%%)' % (stock['종목명'], market, stock['수익률(%)'], SELL_OPTION['speed_mode']['percentage'] * 100))
+      if len(list(filter(lambda x: x['order_info']['done'] == True and x['order_info']['symbol_code'] == stock['종목코드'], TODAY_TRADING_LIST['buy']))) == 1:
+        LOGGER.debug('This stock is target for SPEED MODE!')
 
-        if stock['종목코드'] not in sell_list:
-          sell_list[stock['종목코드']] = {
-            'info': stock,
-            'reason': []
-          }
-        sell_list[stock['종목코드']]['reason'].append(reason)
+        if stock['수익률(%)'] >= profit_cut:
+          LOGGER.debug('%s(%s) is greater than speed mode percentage(%.2f%%>=%.2f%%)' % (stock['종목명'], market, stock['수익률(%)'], SELL_OPTION['speed_mode']['percentage'] * 100))
+
+          if stock['종목코드'] not in sell_list:
+            sell_list[stock['종목코드']] = {
+              'info': stock,
+              'reason': []
+            }
+          sell_list[stock['종목코드']]['reason'].append(reason)
     
     LOGGER.info('Decision to sell %s, %s, %.2f%% => %s %s' % (stock['종목코드'], stock['종목명'], stock['수익률(%)'], '*SELL*' if stock['종목코드'] in sell_list else '*NOT SELL*', '(REASON: %s)' % (', '.join(sell_list[stock['종목코드']]['reason'])) if stock['종목코드'] in sell_list else ''))
 
@@ -537,6 +524,59 @@ def fnGetQuantity(argTradePrice, argMaxMoney):
 
   return resQuantity
 
+#=============================== Kiwoom Callback Functions ===============================#
+def fnSetCallback(argTrader):
+  global LOGGER
+
+  LOGGER.debug('fnSetCallback')
+
+  LOGGER.debug('Set callback 주문체결')
+  argTrader.dict_callback['주문체결'] = orderCompleteCallback
+
+  LOGGER.debug('Set callback 잔고변동')
+  argTrader.dict_callback['잔고변동'] = holdingStocksCallback
+
+def orderCompleteCallback(argData):
+  global LOGGER
+
+  LOGGER.debug('ChejanDataCallback')
+
+  # 종목코드에서 'A' 제거
+  symbol_code = argData["종목코드"]
+  if 'A' <= symbol_code[0] <= 'Z' or 'a' <= symbol_code[0] <= 'z':
+    symbol_code = symbol_code[1:]
+
+  if int(argData['미체결수량']) == 0:
+    target = 'buy'
+
+    if '매도' in argData['주문구분']:
+      target = 'sell'
+      LOGGER.debug('매도 완료!')
+    elif '매수' in argData['주문구분']:
+      LOGGER.debug('매수 완료!')
+
+    if len(list(filter(lambda x: x['order_info']['symbol_code'] == symbol_code, TODAY_TRADING_LIST[target]))) == 1:
+      idx = list(map(lambda x: x['order_info']['symbol_code'], TODAY_TRADING_LIST[target])).index(symbol_code)
+      if idx != -1:
+        order_info = TODAY_TRADING_LIST[target][idx]['order_info']
+
+        LOGGER.info('Complate %s Order (%s, %s, %s, %s)!' % (target.capitalize(), symbol_code, order_info['name'], fnCommify(order_info['trade_price']), fnCommify(order_info['quantity'])))
+
+        TODAY_TRADING_LIST[target][idx]['order_info']['done'] = True
+        TODAY_TRADING_LIST[target][idx]['order_result'] = argData
+        LOGGER.debug(TODAY_TRADING_LIST[target][idx])
+    else:
+      LOGGER.debug('It\'s not my order!')
+      LOGGER.debug(argData)
+
+def holdingStocksCallback(argData):
+  global LOGGER
+  global ACCOUNT_INFO
+
+  LOGGER.debug('holdingStocksCallback')
+
+  LOGGER.debug('잔고변동: %s' % (argData))
+
 #=============================== Kiwoom Functions ===============================#
 def fnLogin():
   global LOGGER
@@ -568,14 +608,15 @@ def fnGetDepositInfo(argTrader, argAccount):
   argTrader.kiwoom_TR_OPW00004_계좌평가현황요청(argAccount)
 
   while True:
-    if argTrader.result['updated'] is True:
+    if argTrader.result['update']['계좌평가현황요청'] is True:
       break
     time.sleep(CONNECTION_OPTION['wait_interval'])
 
-  return argTrader.result['계좌평가현황요청']
+  return argTrader.result['data']['계좌평가현황요청']
 
 def fnGetHoldingStocks(argTrader, argAccount):
   global LOGGER
+  global ACCOUNT_INFO
   global CONNECTION_OPTION
 
   LOGGER.debug('fnGetHoldingStocks(%s)' % (argAccount))
@@ -583,28 +624,47 @@ def fnGetHoldingStocks(argTrader, argAccount):
   argTrader.kiwoom_TR_opw00018_계좌평가잔고내역요청(argAccount)
 
   while True:
-    if argTrader.result['updated'] is True:
+    if argTrader.result['update']['계좌평가잔고내역요청'] is True:
       break
     time.sleep(CONNECTION_OPTION['wait_interval'])
-    
-  holding_stocks = list(filter(lambda x: x['보유수량'] != 0, argTrader.result['계좌평가잔고내역요청']))
 
-  more_info = fnGetMoreInfoMyStock(list(map(lambda x: x['종목코드'], holding_stocks)), )
+  res_holding_stocks = []
+  
+  current_stocks = ACCOUNT_INFO['holding_stocks']
+  current_stocks_symbol_code = list(map(lambda x: x['종목코드'], current_stocks))
+
+  holding_stocks = list(filter(lambda x: x['보유수량'] != 0, argTrader.result['data']['계좌평가잔고내역요청']))
+  holding_stocks_symbol_code = list(map(lambda x: x['종목코드'], holding_stocks))
+
+  for (idx, symbol_code) in enumerate(holding_stocks_symbol_code):
+    data = holding_stocks[idx]
+
+    if symbol_code in current_stocks_symbol_code:
+      cur_idx = current_stocks_symbol_code.index(symbol_code)
+      data = current_stocks[cur_idx]
+      data.update(holding_stocks[idx])
+    
+    res_holding_stocks.append(data)
+
+  more_info = []
+
+  if len(list(map(lambda x: x['종목코드'], list(filter(lambda y: 'MORE_INFO' not in y, res_holding_stocks))))) > 0:
+    more_info = fnGetMoreInfoMyStock(list(map(lambda x: x['종목코드'], list(filter(lambda y: 'MORE_INFO' not in y, res_holding_stocks)))))
 
   more_info_symbols = list(map(lambda x: x['symbol_code'], more_info))
 
-  for (idx, stock) in enumerate(holding_stocks):
+  for (idx, stock) in enumerate(res_holding_stocks):
     if stock['종목코드'] in more_info_symbols:
       m_idx = more_info_symbols.index(stock['종목코드'])
-      holding_stocks[idx]['MORE_INFO'] = more_info[m_idx]
-      holding_stocks[idx]['market'] = more_info[m_idx]['market']
-      holding_stocks[idx]['market_rank'] = more_info[m_idx]['market_rank']
-      holding_stocks[idx]['level'] = more_info[m_idx]['lyr']
-      holding_stocks[idx]['target_price'] = more_info[m_idx]['target_price']
+      res_holding_stocks[idx]['MORE_INFO'] = more_info[m_idx]
+      res_holding_stocks[idx]['market'] = more_info[m_idx]['market']
+      res_holding_stocks[idx]['market_rank'] = more_info[m_idx]['market_rank']
+      res_holding_stocks[idx]['level'] = more_info[m_idx]['lyr']
+      res_holding_stocks[idx]['target_price'] = more_info[m_idx]['target_price']
   
-  return holding_stocks
+  return res_holding_stocks
 
-def fnUpdateAccountInfo(argTrader, argAccount):
+def fnUpdateAccountInfo(argTrader, argAccount, withHoldingStocks=True):
   global LOGGER
   global ACCOUNT_INFO
 
@@ -612,7 +672,9 @@ def fnUpdateAccountInfo(argTrader, argAccount):
 
   res['deposit_info'] = fnGetDepositInfo(argTrader, argAccount)
   res['deposit'] = res['deposit_info']['D+2추정예수금']
-  res['holding_stocks'] = fnGetHoldingStocks(argTrader, argAccount)
+
+  if withHoldingStocks:
+    res['holding_stocks'] = fnGetHoldingStocks(argTrader, argAccount)
 
   return res
 
@@ -628,7 +690,7 @@ def fnGetStockInfo(argTrader, argSymbolCode):
 
       time.sleep(CONNECTION_OPTION['wait_interval'])
 
-      stock_info = argTrader.result['주식기본정보']
+      stock_info = argTrader.result['data']['주식기본정보요청']
       LOGGER.debug(stock_info)
 
       if abs(stock_info['시가']) == 0:
@@ -675,7 +737,7 @@ def fnMain(argOptions, argArgs):
     for try_count in range(CONNECTION_OPTION['try_count']):
       try:
         (TRADER, login_status) = fnLogin()
-        if login_status['data']['status'] == 0:
+        if login_status['data']['Login']['status'] == 0:
           LOGGER.info('Login Success!')
         else:
           LOGGER.info('Login failed...')
@@ -706,7 +768,7 @@ def fnMain(argOptions, argArgs):
     TODAY_SIGNAL = fnGetConsensusInfo(BUY_OPTION)
     TODAY_ORDER_LIST.update(fnGetOrderList(TODAY_SIGNAL, ACCOUNT_INFO['holding_stocks']))
 
-    TRADER.dict_callback['주문체결'] = orderCompleteCallback
+    fnSetCallback(TRADER)
 
     # fnSettingOrderList()
 
@@ -745,13 +807,6 @@ def fnGetData(argURL, params=None, headers=None, argTryCount=5):
   #     # Python 2
   #     import httplib as http_client
   # http_client.HTTPConnection.debuglevel = 1
-
-  # # You must initialize logging, otherwise you'll not see debug output.
-  # logging.basicConfig()
-  # logging.getLogger().setLevel(logging.DEBUG)
-  # requests_log = logging.getLogger("requests.packages.urllib3")
-  # requests_log.setLevel(logging.DEBUG)
-  # requests_log.propagate = True
 
   res = None
 
@@ -931,7 +986,6 @@ def fnLoadingOptions():
   try:
     # Loading Stocker Option
     if 'stocker_option' in CONFIG:
-      print(CONFIG['stocker_option'])
       STOCKER_OPTION.update(CONFIG['stocker_option'])
 
     # Loading System Option
