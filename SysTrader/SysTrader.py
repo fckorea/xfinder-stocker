@@ -25,6 +25,21 @@ import pandas as pd
 # 상수
 viewNumber = "1234"
 
+keys = {
+  "kiwoom_CommConnect": "CommConnect",
+  "kiwoom_TR_OPT10085_계좌수익률요청": "계좌수익률요청",
+  "kiwoom_TR_opw00018_계좌평가잔고내역요청": "계좌평가잔고내역요청",
+  "kiwoom_TR_OPW00001_예수금상세현황요청": "예수금상세현황요청",
+  "kiwoom_TR_OPW00004_계좌평가현황요청": "계좌평가현황요청",
+  "kiwoom_TR_OPT10001_주식기본정보요청": "주식기본정보요청",
+  "kiwoom_TR_OPT10080_주식분봉차트조회": "주식분봉차트조회",
+  "kiwoom_TR_OPT10081_주식일봉차트조회": "주식일봉차트조회",
+  "kiwoom_TR_OPT20006_업종일봉조회": "업종일봉조회",
+  "kiwoom_GetConditionLoad": "GetConditionLoad",
+  "kiwoom_SendCondition": "SendCondition",
+  "kiwoom_SendOrder": "SendOrder"
+}
+
 class SyncRequestDecorator:
   """키움 API 비동기 함수 데코레이터
   """
@@ -35,7 +50,7 @@ class SyncRequestDecorator:
       if kwargs.get('nPrevNext', 0) == 0:
         self.LOGGER.debug('초기 요청 준비')
         self.params = {}
-        self.result = { 'updated': False }
+        self.result['update'][keys[func.__name__]] = False
       # self.request_thread_worker.request_queue.append((func, args, kwargs))
       self.LOGGER.debug("요청 실행: %s %s %s" % (func.__name__, args, kwargs))
       func(self, *args, **kwargs)
@@ -85,7 +100,10 @@ class Kiwoom(QAxWidget):
 
     # 요청 결과
     self.event = None
-    self.result = {}
+    self.result = {
+      'update': {},
+      'data': {}
+    }
 
     # 문자열데이터 키
     self.str_data_key = [
@@ -169,21 +187,23 @@ class Kiwoom(QAxWidget):
     :return:
     """
     self.result['data'] = {
-      'status': nErrCode
+      'Login': {
+        'status': nErrCode
+      }
     }
 
     if nErrCode == 0:
       self.LOGGER.debug("로그인 성공")
-      self.result['data']['message'] = "로그인 성공"
+      self.result['data']['Login']['message'] = "로그인 성공"
     elif nErrCode == 100:
       self.LOGGER.debug("사용자 정보교환 실패")
-      self.result['data']['message'] = "사용자 정보교환 실패"
+      self.result['data']['Login']['message'] = "사용자 정보교환 실패"
     elif nErrCode == 101:
       self.LOGGER.debug("서버접속 실패")
-      self.result['data']['message'] = "서버접속 실패"
+      self.result['data']['Login']['message'] = "서버접속 실패"
     elif nErrCode == 102:
       self.LOGGER.debug("버전처리 실패")
-      self.result['data']['message'] = "버전처리 실패"
+      self.result['data']['Login']['message'] = "버전처리 실패"
     
 
     if self.event is not None:
@@ -291,7 +311,8 @@ class Kiwoom(QAxWidget):
     """
     res = self.kiwoom_SetInputValue("종목코드", strCode)
     res = self.kiwoom_CommRqData("주식기본정보", "OPT10001", 0, viewNumber)
-    self.result['주식기본정보'] = res
+    self.result['data']['주식기본정보요청'] = res
+    self.result['update']['주식기본정보요청'] = True
     return res
 
   @SyncRequestDecorator.kiwoom_sync_request
@@ -369,7 +390,7 @@ class Kiwoom(QAxWidget):
     """
 
     if sRQName == "예수금상세현황요청":
-      self.result[sRQName] = {}
+      self.result['data'][sRQName] = {}
       list_item_name = [
         "예수금",
         "출금가능금액",
@@ -389,16 +410,17 @@ class Kiwoom(QAxWidget):
         "d+2출금가능금액"
       ]
       
-      self.result[sRQName] = {
+      self.result['data'][sRQName] = {
         item_name: util.auto_cast(self.kiwoom_GetCommData(sTRCode, sRQName, 0, item_name).strip()) if item_name not in self.str_data_key else self.kiwoom_GetCommData(sTRCode, sRQName, 0, item_name).strip() for item_name in list_item_name
       }
+      self.result['update'][sRQName] = True
       
-      self.LOGGER.debug("예수금상세현황요청: %s" % (self.result))
+      self.LOGGER.debug("예수금상세현황요청: %s" % (self.result['data'][sRQName]))
       if "예수금상세현황요청" in self.dict_callback:
-        self.dict_callback["예수금상세현황요청"](self.result[sRQName])
+        self.dict_callback["예수금상세현황요청"](self.result['data'][sRQName])
       
     elif sRQName == "계좌평가현황요청":
-      self.result[sRQName] = {}
+      self.result['data'][sRQName] = {}
       list_item_name = [
         "계좌명",
         "지점명",
@@ -420,16 +442,17 @@ class Kiwoom(QAxWidget):
         "출력건수"
       ]
       
-      self.result[sRQName] = {
+      self.result['data'][sRQName] = {
         item_name: util.auto_cast(self.kiwoom_GetCommData(sTRCode, sRQName, 0, item_name).strip()) if item_name not in self.str_data_key else self.kiwoom_GetCommData(sTRCode, sRQName, 0, item_name).strip() for item_name in list_item_name
       }
+      self.result['update'][sRQName] = True
       
       self.LOGGER.debug("계좌평가현황요청: %s" % (self.result))
       if "계좌평가현황요청" in self.dict_callback:
-        self.dict_callback["계좌평가현황요청"](self.result[sRQName])
+        self.dict_callback["계좌평가현황요청"](self.result['data'][sRQName])
 
     elif sRQName == "주식기본정보":
-      self.result[sRQName] = {}
+      self.result['data'][sRQName] = {}
       list_item_name = [
         "종목코드",
         "종목명",
@@ -467,13 +490,14 @@ class Kiwoom(QAxWidget):
         "유통비율"
       ]
       
-      self.result[sRQName] = {
+      self.result['data'][sRQName] = {
         item_name: util.auto_cast(self.kiwoom_GetCommData(sTRCode, sRQName, 0, item_name).strip()) if item_name not in self.str_data_key else self.kiwoom_GetCommData(sTRCode, sRQName, 0, item_name).strip() for item_name in list_item_name
       }
+      self.result['update'][sRQName] = True
       
-      self.LOGGER.debug("주식기본정보: %s, %s" % (self.result[sRQName]['종목코드'], self.result[sRQName]))
+      self.LOGGER.debug("주식기본정보: %s, %s" % (self.result['data'][sRQName]['종목코드'], self.result['data'][sRQName]))
       if "주식기본정보" in self.dict_callback:
-        self.dict_callback["주식기본정보"](self.result[sRQName])
+        self.dict_callback["주식기본정보"](self.result['data'][sRQName])
 
     elif sRQName == "시세표성정보":
       cnt = self.kiwoom_GetRepeatCnt(sTRCode, sRQName)
@@ -602,7 +626,7 @@ class Kiwoom(QAxWidget):
     elif sRQName == "계좌수익률요청":
       cnt = self.kiwoom_GetRepeatCnt(sTRCode, sRQName)
       # assert self.dict_holding is None # The request will set this to None.
-      self.result[sRQName] = []
+      self.result['data'][sRQName] = []
       for nIdx in range(cnt):
         list_item_name = [
           "일자",
@@ -642,8 +666,10 @@ class Kiwoom(QAxWidget):
         dict_holding["평가손익"] = dict_holding["평가금액"] - dict_holding["매입금액"]
         dict_holding["수익률"] = dict_holding["평가손익"] / dict_holding["매입금액"]
         
-        self.result[sRQName].append(dict_holding)
+        self.result['data'][sRQName].append(dict_holding)
         self.LOGGER.debug("계좌수익: %s" % (dict_holding))
+
+      self.result['update'][sRQName] = True
 
       if '계좌수익률요청' in self.dict_callback:
         self.dict_callback['계좌수익률요청'](self.dict_holding)
@@ -651,7 +677,7 @@ class Kiwoom(QAxWidget):
     elif sRQName == "계좌평가잔고내역요청":
       cnt = self.kiwoom_GetRepeatCnt(sTRCode, sRQName)
       # assert self.dict_holding is None # The request will set this to None.
-      self.result[sRQName] = []
+      self.result['data'][sRQName] = []
       for nIdx in range(cnt):
         list_item_name = [
           "종목번호",
@@ -709,8 +735,10 @@ class Kiwoom(QAxWidget):
         if dict_holding["보유수량"] == 0:
           continue
         
-        self.result[sRQName].append(dict_holding)
+        self.result['data'][sRQName].append(dict_holding)
         # self.LOGGER.debug("계좌수익: %s" % (dict_holding,))
+
+      self.result['update'][sRQName] = True
 
       if '계좌평가잔고내역요청' in self.dict_callback:
         self.dict_callback['계좌평가잔고내역요청'](self.dict_holding)
@@ -743,7 +771,7 @@ class Kiwoom(QAxWidget):
     :param kwargs:
     :return:
     """
-    self.LOGGER.debug("REAL: %s %s %s" % (sCode, sRealType, sRealData))
+    self.LOGGER.debug("OnReceiveRealData: %s %s %s" % (sCode, sRealType, sRealData))
 
     if sRealType == "주식체결":
       pass
@@ -806,11 +834,11 @@ class Kiwoom(QAxWidget):
     """
     if lRet:
       sRet = self.dynamicCall("GetConditionNameList()")
-      self.result['result'] = list(map(lambda x: dict(id=x.split('^')[0], name=x.split('^')[1]), sRet.rstrip(';').split(';')))
+      self.result['data']['GetConditionNameLists'] = list(map(lambda x: dict(id=x.split('^')[0], name=x.split('^')[1]), sRet.rstrip(';').split(';')))
       # res = self.kiwoom_SendCondition(self.result['result'][-1]['name'], self.result['result'][-1]['id'])
       # print(res)
     else:
-      self.result['result'] = []
+      self.result['data']['GetConditionNameLists'] = []
     
     if self.event is not None:
       self.event.exit()
@@ -859,7 +887,7 @@ class Kiwoom(QAxWidget):
 
     # 조검검색 결과를 종목 모니터링 리스트에 추가
     # self.set_stock2monitor.update(set(list_str_code))
-    self.result['result'] = list_str_code
+    self.result['result']['data']['OnReceiveTrCondition'] = list_str_code
 
     if self.event is not None:
       self.event.exit()
@@ -998,7 +1026,7 @@ class Kiwoom(QAxWidget):
     :param kwargs:
     :return:
     """
-    self.LOGGER.debug("체결/잔고: %s %s %s" % (sGubun, nItemCnt, sFIdList))
+    self.LOGGER.debug("OnReceiveChejanData: %s %s %s" % (sGubun, nItemCnt, sFIdList))
 
     if sGubun == '0':
       list_item_name = ["계좌번호", "주문번호", "관리자사번", "종목코드", "주문업무분류",
@@ -1042,19 +1070,12 @@ class Kiwoom(QAxWidget):
               28, 307, 8019, 957, 958,
               918, 990, 991, 992, 993,
               959, 924]
-      dict_holding = {item_name: self.kiwoom_GetChejanData(item_id).strip() for item_name, item_id in zip(list_item_name, list_item_id)}
       dict_holding = {
         item_name: util.auto_cast(self.kiwoom_GetChejanData(item_id).strip()) if item_name not in self.str_data_key else self.kiwoom_GetChejanData(item_id).strip() for item_name, item_id in zip(list_item_name, list_item_id)
       }
 
-      # # 종목코드에서 'A' 제거
-      # 종목코드 = dict_holding["종목코드"]
-      # if 'A' <= 종목코드[0] <= 'Z' or 'a' <= 종목코드[0] <= 'z':
-      #   종목코드 = 종목코드[1:]
-      #   dict_holding["종목코드"] = 종목코드
-
-      # # 보유종목 리스트에 추가
-      # self.dict_holding[종목코드] = dict_holding
+      if '잔고' in self.dict_callback:
+        self.dict_callback['잔고'](dict_holding)
 
       self.LOGGER.debug("잔고: %s" % (dict_holding,))
 
