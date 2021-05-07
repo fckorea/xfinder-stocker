@@ -34,6 +34,8 @@ from PyQt5.QtWidgets import QApplication
 from pandas import Timestamp
 from trading_calendars import get_calendar
 
+import telegram
+
 from SysTrader import SysTrader
 
 PROG_NAME = 'Stocker'
@@ -41,6 +43,7 @@ PROG_VER = '1.0'
 LOGGER = None
 LOG_DIR = './logs'
 LOG_FILENAME = os.path.abspath('%s/%s.log' % (LOG_DIR, PROG_NAME.replace(' ', '-').lower()))
+STOCKER_URL = 'http://tbx.kr'
 STOCKER_URL = 'http://tbx.kr/api/v1/trader/consensus'
 CONFIG = {}
 
@@ -139,6 +142,8 @@ WORKER = {
     'th': None
   }
 }
+
+TELEGRAM_BOT = None
 
 KRX_CALENDAR = get_calendar('XKRX')
 
@@ -290,10 +295,10 @@ class BuyWorker(QThread):
         LOGGER.info('[BUY WORKER] 주문가능금액: %s원' % (fnCommify(ACCOUNT_INFO['deposit'])))
         LOGGER.info('[BUY WORKER] 종목당구매금액: %s원' % (fnCommify(KIWOOM_OPTION['money_per_buy'])))
       else:
-        buy_list = fnCheckBuyStocks()
+        (buy_remaind_count, buy_list) = fnCheckBuyStocks()
         order_buy_list = []
 
-        LOGGER.info('[BUY WORKER] Checked Buy Stocks (Count: %d)' % (len(buy_list)))
+        LOGGER.info('[BUY WORKER] Checked Buy Stocks (Count: %d, Remaind: %d)' % (len(buy_list), buy_remaind_count))
         LOGGER.info('<<<<< CHECKED BUY STOCKS >>>>>')
 
         for buy_stock in buy_list:
@@ -341,6 +346,10 @@ class BuyWorker(QThread):
             break
           time.sleep(CONNECTION_OPTION['wait_interval'])
         break
+      
+      if buy_remaind_count == -1:
+        LOGGER.info('[BUY WORKER] NO MORE BUY STOCKS TERMINATE BUY WORKER!')
+        break
 
     time.sleep(3)
     LOGGER.info('<<<<< TERMINATE BUY WORKER >>>>>')
@@ -361,6 +370,7 @@ def fnCheckSellStocks(argHoldingStocks):
 
   # Notice Minimum Profit Cut
   LOGGER.debug('Minimum Profit Cut Percentage: %.2f%%' % (SELL_OPTION['minimum']['percentage'] * 100))
+  minimum_profit_cut = SELL_OPTION['minimum']['percentage'] * 100
 
   for stock in argHoldingStocks:
     LOGGER.info('Check %s, %s, %.2f%%' % (stock['종목코드'], stock['종목명'], stock['수익률(%)']))
@@ -368,12 +378,12 @@ def fnCheckSellStocks(argHoldingStocks):
     # Check Static Profit Cut
     LOGGER.debug('Check Static Profit Cut: %s (>=%.2f%%)' % (SELL_OPTION['static']['enabled'], SELL_OPTION['static']['percentage'] * 100))
     if SELL_OPTION['static']['enabled'] is True:
-      profit_cut = (SELL_OPTION['static']['percentage'] * 100)
+      profit_cut = SELL_OPTION['static']['percentage'] * 100
       reason = '>=%.2f%%(Static)' % (profit_cut)
       
-      if SELL_OPTION['static']['percentage'] < SELL_OPTION['minimum']['percentage'] * 100:
-        LOGGER.debug('re-check profit cut (%.2f%% => %.2f%%)' % (profit_cut, (SELL_OPTION['minimum']['percentage'] * 100)))
-        profit_cut = (SELL_OPTION['minimum']['percentage'] * 100)
+      if profit_cut < minimum_profit_cut:
+        LOGGER.debug('re-check profit cut (%.2f%% => %.2f%%)' % (profit_cut, minimum_profit_cut))
+        profit_cut = minimum_profit_cut
         reason = '>=%.2f%%(Static<minimum>)' % (profit_cut)
 
       if stock['수익률(%)'] >= profit_cut:
@@ -392,9 +402,9 @@ def fnCheckSellStocks(argHoldingStocks):
       profit_cut = SELL_OPTION['stats']['percentage'][market]['percentage'] * 100
       reason = '>=%.2f%%(Stats|%s)' % (profit_cut, market)
       
-      if profit_cut < SELL_OPTION['minimum']['percentage'] * 100:
-        LOGGER.debug('re-check profit cut (%.2f%% => %.2f%%)' % (profit_cut, (SELL_OPTION['minimum']['percentage'] * 100)))
-        profit_cut = (SELL_OPTION['minimum']['percentage'] * 100)
+      if profit_cut < minimum_profit_cut:
+        LOGGER.debug('re-check profit cut (%.2f%% => %.2f%%)' % (profit_cut, minimum_profit_cut))
+        profit_cut = minimum_profit_cut
         reason = '>=%.2f%%(Stats|%s)' % (profit_cut, market)
 
       if stock['수익률(%)'] >= profit_cut:
@@ -409,12 +419,12 @@ def fnCheckSellStocks(argHoldingStocks):
     # Check Target Price
     LOGGER.debug('Check Target Price Cut: %s' % (SELL_OPTION['target_price']['enabled']))
     if SELL_OPTION['target_price']['enabled'] is True:
-      reason = '>=%s(TargetPrice>=%.2f%%)' % (stock['MORE_INFO']['target_price'], (SELL_OPTION['minimum']['percentage'] * 100))
+      reason = '>=%s(>=%.2f%%)' % (stock['MORE_INFO']['target_price'], minimum_profit_cut)
 
       if stock['MORE_INFO']['target_price'] is not None and stock['현재가'] >= stock['MORE_INFO']['target_price']:
         LOGGER.debug('%s is greater than target price(%s>=%s)' % (stock['종목명'], fnCommify(stock['현재가']), fnCommify(stock['MORE_INFO']['target_price'])))
 
-        if stock['수익률(%)'] >= (SELL_OPTION['minimum']['percentage'] * 100):
+        if stock['수익률(%)'] >= minimum_profit_cut:
           if stock['종목코드'] not in sell_list:
             sell_list[stock['종목코드']] = {
               'info': stock,
@@ -422,12 +432,13 @@ def fnCheckSellStocks(argHoldingStocks):
             }
           sell_list[stock['종목코드']]['reason'].append(reason)
         else:
-          LOGGER.debug('%s : Profit(%.2f%%) is lower than minimum percentage(%.2f%%)' % (stock['종목명'], stock['수익률(%)'], SELL_OPTION['minimum']['percentage'] * 100))
+          LOGGER.debug('%s : Profit(%.2f%%) is lower than minimum percentage(%.2f%%)' % (stock['종목명'], stock['수익률(%)'], minimum_profit_cut))
 
     # Check No More Buy
 
     # Check Speed Mode
     LOGGER.debug('Check Speed Mode Profit Cut: %s (>=%.2f%%)' % (SELL_OPTION['speed_mode']['enabled'], SELL_OPTION['speed_mode']['percentage'] * 100))
+    LOGGER.debug('Speed Mode is %s' % (SELL_OPTION['speed_mode']['enabled']))
     if SELL_OPTION['speed_mode']['enabled'] is True:
       profit_cut = (SELL_OPTION['speed_mode']['percentage'] * 100)
       reason = '>=%.2f%%(Speed Mode)' % (SELL_OPTION['speed_mode']['percentage'] * 100)
@@ -471,8 +482,11 @@ def fnCheckBuyStocks():
 
   LOGGER.debug('Start idx: %d' % (TODAY_ORDER_LIST['idx']['buy']))
 
-  if len(TODAY_ORDER_LIST['buy']) <= TODAY_ORDER_LIST['idx']['buy']:
+  remaind_count = len(TODAY_ORDER_LIST['buy']) - TODAY_ORDER_LIST['idx']['buy']
+
+  if remaind_count <= 0:
     LOGGER.debug('No more buy stock! (len: %d, idx: %d)' % (len(TODAY_ORDER_LIST['buy']), TODAY_ORDER_LIST['idx']['buy']))
+    return (-1, [])
   else:
     for stock in TODAY_ORDER_LIST['buy'][TODAY_ORDER_LIST['idx']['buy']:(TODAY_ORDER_LIST['idx']['buy'] + available_count)]:
       buy_list.append(stock)
@@ -480,7 +494,7 @@ def fnCheckBuyStocks():
     TODAY_ORDER_LIST['idx']['buy'] += len(buy_list)
     LOGGER.debug('Setting Start idx: %d' % (TODAY_ORDER_LIST['idx']['buy']))
   
-  return buy_list
+  return (len(TODAY_ORDER_LIST['buy']) - TODAY_ORDER_LIST['idx']['buy'], buy_list)
 
 def fnGetOrderList(argSignalList, argHoldingStocks):
   global LOGGER
@@ -627,6 +641,7 @@ def fnGetHoldingStocks(argTrader, argAccount):
     if argTrader.result['update']['계좌평가잔고내역요청'] is True:
       break
     time.sleep(CONNECTION_OPTION['wait_interval'])
+    LOGGER.debug('wait fnGetHoldingStocks')
 
   res_holding_stocks = []
   
@@ -690,10 +705,10 @@ def fnGetStockInfo(argTrader, argSymbolCode):
 
       time.sleep(CONNECTION_OPTION['wait_interval'])
 
-      stock_info = argTrader.result['data']['주식기본정보요청']
+      stock_info = argTrader.result['data']['주식기본정보']
       LOGGER.debug(stock_info)
 
-      if abs(stock_info['시가']) == 0:
+      if abs(stock_info['현재가']) == 0:
         LOGGER.debug('Trade price is 0')
         LOGGER.error(' -x- retry (%d / %d)' % (try_count + 1, CONNECTION_OPTION['try_count']))
         continue
@@ -704,6 +719,91 @@ def fnGetStockInfo(argTrader, argSymbolCode):
       LOGGER.error(' -x- retry (%d / %d)' % (try_count + 1, CONNECTION_OPTION['try_count']))
 
   return stock_info
+
+#=============================== Telegram Functions ===============================#
+def fnSendMessage(argMessage):
+  global LOGGER
+  global CONNECTION_OPTION
+  global TELEGRAM_OPTION
+  global TELEGRAM_BOT
+
+  if TELEGRAM_BOT is None:
+    LOGGER.error('TELEGRAM BOT IS NONE!!!')
+    return
+
+  if argMessage == '' or len(argMessage) == 0 or (type(argMessage) is list and len(''.join(argMessage).strip()) == 0):
+    LOGGER.info('Message is None!')
+    return
+
+  try:
+      message = argMessage
+      if type(argMessage) is list:
+        message = '\n'.join(argMessage)
+      LOGGER.info(message)
+      for i in range(CONNECTION_OPTION['try_count']):
+        try:
+          TELEGRAM_BOT.sendMessage(chat_id=TELEGRAM_OPTION['chat_id'], text=message)
+          break
+        except:
+          LOGGER.error(traceback.format_exc())
+          LOGGER.error('TELEGRAM SEND MESSAGE ERROR -x- Retry: %d / %d' % (
+            (i + 1),
+            CONNECTION_OPTION['try_count']
+          ))
+  except:
+    LOGGER.error(traceback.format_exc())
+
+def fnSendAccountMoney():
+  global LOGGER
+  global ACCOUNT_INFO
+
+  message = [ '<<< 예수금 >>>' ]
+  message.append('계좌번호: %s' % (ACCOUNT_INFO['account_number']))
+  message.append('매수 가능 금액: %s원' % (fnCommify(ACCOUNT_INFO['available_money'])))
+  message.append('')
+  
+  fnSendMessage(message)
+
+def fnSendConfig():
+  global LOGGER
+  global KIWOOM_OPTION
+  global BUY_OPTION
+  global SELL_OPTION
+  global SYSTEM_OPTION
+
+  message = []
+  message.append('*** CONFIG ***')
+  message.append('+ 거래계좌번호: %s' % (KIWOOM_OPTION['account_number']))
+  message.append('+ 종목 당 매수 금액: %s원' % (fnCommify(KIWOOM_OPTION['money_per_buy'])))
+  message.append('+ 매수 Level: %s' % (BUY_OPTION['buy_level']))
+  message.append('+ 매수 조건')
+  message.append('    - Level0: %s' % (BUY_OPTION['buy_level_0_option']['level']))
+  message.append('    - Level1: %s' % (BUY_OPTION['buy_level_1_option']['level']))
+  message.append('    - Level2: %s, %.2f' % (BUY_OPTION['buy_level_2_option']['level'], BUY_OPTION['buy_level_2_option']['rate'] * 100))
+  message.append('+ 매도 조건')
+  if SELL_OPTION['profit_cut'] is True:
+    message.append('    - 익절 매도 설정: %s (>=%.2f%%)' % (SELL_OPTION['profit_cut'], SELL_OPTION['profit_cut_percentage']))
+  else:
+    message.append('    - 익절 매도 설정: %s' % (SELL_OPTION['profit_cut']))
+  if SELL_OPTION['profit_cut_by_stats'] is True:
+    message.append('    - 통계 익절 매도 설정: %s (%ddays)' % (SELL_OPTION['profit_cut_by_stats'], SELL_OPTION['profit_cut_by_stats_days']))
+    for market in SELL_OPTION['profit_cut_by_stats_percentage']:
+      message.append('      .%s: %.2f%%' % (market, SELL_OPTION['profit_cut_by_stats_percentage'][market]['avg_profit_rate']))
+  else:
+    message.append('    - 통계 익절 매도 설정: %s' % (SELL_OPTION['profit_cut_by_stats']))
+  message.append('    - 목표가 매도 설정: %s' % (SELL_OPTION['target_price_cut']))
+  if SELL_OPTION['no_more_buy_profit_cut'] is True:
+    message.append('    - 매수금 부족 시 익절 매도 설정: %s (>=%.2f%%)' % (SELL_OPTION['no_more_buy_profit_cut'], SELL_OPTION['no_more_buy_profit_cut_percentage']))
+  else:
+    message.append('    - 매수금 부족 시 익절 매도 설정: %s' % (SELL_OPTION['no_more_buy_profit_cut']))
+    
+  if 'minimum_profit_cut_percentage' in SELL_OPTION:
+    message.append('    - 최소 익절 매도 수익률: %.2f%% (Auto: %s)' % (SELL_OPTION['minimum_profit_cut_percentage'], SELL_OPTION['auto_minimum_profit_cut']))
+  if len(SELL_OPTION['exception']) > 0:
+    message.append('+ 판매 예외 종목 코드: %s' % (','.join(list(map(lambda x: x['symbol_code'], SELL_OPTION['exception'])))))
+  message.append('+ 시스템 자동 종료 설정: %s' % (SYSTEM_OPTION['auto_shutdown']))
+
+  fnSendMessage(message)
 
 #=============================== Main Functions ===============================#
 def fnMain(argOptions, argArgs):
@@ -1187,6 +1287,7 @@ def fnSettingOptions():
   global BUY_OPTION
   global SELL_OPTION
   global TELEGRAM_OPTION
+  global TELEGRAM_BOT
 
   try:
     # Setting Sell Option
@@ -1224,6 +1325,9 @@ def fnSettingOptions():
     #   if SELL_OPTION['stats']['percentage']['KOSDAQ']['percentage'] < SELL_OPTION['minimum']['percentage']:
     #     SELL_OPTION['stats']['percentage']['KOSDAQ']['percentage'] = SELL_OPTION['minimum']['percentage']
     #     LOGGER.info('stats > percentage > KOSDAQ re-setted! (%.2f%%)' % (SELL_OPTION['stats']['percentage']['KOSDAQ']['percentage'] * 100))
+
+    if TELEGRAM_OPTION['enabled'] is True:
+      TELEGRAM_BOT = telegram.Bot(token=TELEGRAM_OPTION['token'])
 
     LOGGER.debug(STOCKER_OPTION)
     LOGGER.debug(SYSTEM_OPTION)
