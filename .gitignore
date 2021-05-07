@@ -1,6 +1,10 @@
+__pycache__
 logs/*
 conf/lastday.conf
 conf/dev_config.conf
 conf/config.conf
 conf/real_config.conf
 SysTrader/__pycache__
+dist
+build
+Stocker.spec
