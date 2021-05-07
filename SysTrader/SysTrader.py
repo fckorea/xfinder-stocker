@@ -54,8 +54,8 @@ class SyncRequestDecorator:
       # self.request_thread_worker.request_queue.append((func, args, kwargs))
       self.LOGGER.debug("요청 실행: %s %s %s" % (func.__name__, args, kwargs))
       func(self, *args, **kwargs)
-      self.event = QEventLoop()
-      self.event.exec_()
+      self.event[keys[func.__name__]] = QEventLoop()
+      self.event[keys[func.__name__]].exec_()
       return self.result  # 콜백 결과 반환
     return func_wrapper
 
@@ -99,7 +99,7 @@ class Kiwoom(QAxWidget):
     self.dict_callback = {}
 
     # 요청 결과
-    self.event = None
+    self.event = {}
     self.result = {
       'update': {},
       'data': {}
@@ -206,8 +206,8 @@ class Kiwoom(QAxWidget):
       self.result['data']['Login']['message'] = "버전처리 실패"
     
 
-    if self.event is not None:
-      self.event.exit()
+    if self.event['CommConnect'] is not None:
+      self.event['CommConnect'].exit()
 
   # -------------------------------------
   # 조회 관련함수
@@ -311,8 +311,6 @@ class Kiwoom(QAxWidget):
     """
     res = self.kiwoom_SetInputValue("종목코드", strCode)
     res = self.kiwoom_CommRqData("주식기본정보", "OPT10001", 0, viewNumber)
-    self.result['data']['주식기본정보요청'] = res
-    self.result['update']['주식기본정보요청'] = True
     return res
 
   @SyncRequestDecorator.kiwoom_sync_request
@@ -498,6 +496,8 @@ class Kiwoom(QAxWidget):
       self.LOGGER.debug("주식기본정보: %s, %s" % (self.result['data'][sRQName]['종목코드'], self.result['data'][sRQName]))
       if "주식기본정보" in self.dict_callback:
         self.dict_callback["주식기본정보"](self.result['data'][sRQName])
+      
+      sRQName = '주식기본정보요청'
 
     elif sRQName == "시세표성정보":
       cnt = self.kiwoom_GetRepeatCnt(sTRCode, sRQName)
@@ -751,8 +751,8 @@ class Kiwoom(QAxWidget):
     else:
       self.LOGGER.debug("Unknown sRQName: {}".format(sRQName))
 
-    if self.event is not None:
-      self.event.exit()
+    if sRQName in self.event and self.event[sRQName] is not None:
+      self.event[sRQName].exit()
 
   # -------------------------------------
   # 실시간 관련함수
@@ -840,8 +840,8 @@ class Kiwoom(QAxWidget):
     else:
       self.result['data']['GetConditionNameLists'] = []
     
-    if self.event is not None:
-      self.event.exit()
+    if self.event['GetConditionLoad'] is not None:
+      self.event['GetConditionLoad'].exit()
   
   @SyncRequestDecorator.kiwoom_sync_request
   def kiwoom_SendCondition(self, strConditionName, nIndex, nSearch=0, **kwargs):
@@ -889,8 +889,8 @@ class Kiwoom(QAxWidget):
     # self.set_stock2monitor.update(set(list_str_code))
     self.result['result']['data']['OnReceiveTrCondition'] = list_str_code
 
-    if self.event is not None:
-      self.event.exit()
+    if self.event['SendCondition'] is not None:
+      self.event['SendCondition'].exit()
 
   @SyncRequestDecorator.kiwoom_sync_callback
   def kiwoom_OnReceiveRealCondition(self, strCode, strType, strConditionName, strConditionIndex, **kwargs):
@@ -966,11 +966,14 @@ class Kiwoom(QAxWidget):
     """
     self.LOGGER.debug("주문/잔고: %s %s %s %s" % (sScrNo, sRQName, sTrCode, sMsg))
 
-    if sMsg.startswith('[505217]') or sMsg.startswith('[571489]') or ' 장종료 ' in sMsg:
+    if sMsg.startswith('[505217]') or sMsg.startswith('[571489]') or sMsg.startswith('[855056]') or ' 장종료 ' in sMsg:
       if sTrCode.startswith('KOA_NORMAL_BUY_'):
         self.LOGGER.debug('BUY ORDER END %s' % (sMsg))
       elif sTrCode.startswith('KOA_NORMAL_SELL_'):
         self.LOGGER.debug('SELL ORDER END %s' % (sMsg))
+    
+    if 'SendOrder' in self.event and self.event['SendOrder'] is not None:
+      self.event['SendOrder'].exit()
 
   def kiwoom_OnReceiveChejanData(self, sGubun, nItemCnt, sFIdList, **kwargs):
     """주문접수, 체결, 잔고발생시
