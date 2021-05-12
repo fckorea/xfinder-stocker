@@ -482,6 +482,13 @@ class SysTrader(QObject):
       elif sTrCode.startswith('KOA_NORMAL_SELL_'):
         WORKER_TERMINATE_STATUS['sell'] = True
         WORKER_TERMINATE_STATUS['sell_msg'] = sMsg
+    if sMsg.startswith('[855056]'):
+      if sTrCode.startswith('KOA_NORMAL_BUY_'):
+        WORKER_TERMINATE_STATUS['buy'] = True
+        WORKER_TERMINATE_STATUS['buy_msg'] = sMsg
+      elif sTrCode.startswith('KOA_NORMAL_SELL_'):
+        WORKER_TERMINATE_STATUS['sell'] = True
+        WORKER_TERMINATE_STATUS['sell_msg'] = sMsg
 
   def kiwoom_OnReceiveChejanData(self, sGubun, nItemCnt, sFIdList, **kwargs):
     """주문접수, 체결, 잔고발생시
