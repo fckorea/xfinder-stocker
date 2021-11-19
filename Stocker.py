@@ -345,7 +345,7 @@ class SysTrader(QObject):
           'cur_sell_fees': int(self.kiwoom_GetCommData(sTRCode, sRQName, i, "당일매매수수료")) if self.kiwoom_GetCommData(sTRCode, sRQName, i, "당일매매수수료").strip() != '' else 0,
           'cur_sell_tax': int(self.kiwoom_GetCommData(sTRCode, sRQName, i, "당일매매세금")) if self.kiwoom_GetCommData(sTRCode, sRQName, i, "당일매매세금").strip() != '' else 0,
           'balance': int(self.kiwoom_GetCommData(sTRCode, sRQName, i, "결제잔고")),
-          'profit_rate': (abs(int(self.kiwoom_GetCommData(sTRCode, sRQName, i, "현재가"))) - int(self.kiwoom_GetCommData(sTRCode, sRQName, i, "매입가"))) / int(self.kiwoom_GetCommData(sTRCode, sRQName, i, "매입가"))
+          'profit_rate': (abs(int(self.kiwoom_GetCommData(sTRCode, sRQName, i, "현재가"))) - int(self.kiwoom_GetCommData(sTRCode, sRQName, i, "매입가"))) / int(self.kiwoom_GetCommData(sTRCode, sRQName, i, "매입가")) if self.kiwoom_GetCommData(sTRCode, sRQName, i, "매입가").strip() != '0' else 0
         })
       
     if sRQName == "주식기본정보":
@@ -1169,7 +1169,7 @@ def fnSendMyStocksInfo():
       message.append('매입금액: %s원' % (fnCommify(stock['buy_amount'])))
       message.append('보유수량: %s주' % (fnCommify(stock['quantity'])))
       message.append('평가금액: %s원' % (fnCommify((abs(stock['trade_price'])*stock['quantity']))))
-      message.append('현재수익: %s원 (%s%%)' % (fnCommify((abs(stock['trade_price'])*stock['quantity']) - (stock['buy_price']*stock['quantity'])), fnCommify((((abs(stock['trade_price'])*stock['quantity']) - (stock['buy_price']*stock['quantity'])) / (stock['buy_price']*stock['quantity']))*100)))
+      message.append('현재수익: %s원 (%s%%)' % (fnCommify((abs(stock['trade_price'])*stock['quantity']) - (stock['buy_price']*stock['quantity'])), fnCommify((((abs(stock['trade_price'])*stock['quantity']) - (stock['buy_price']*stock['quantity'])) / (stock['buy_price']*stock['quantity']))*100) if stock['buy_price'] != 0 else 0))
 
       if (i + 1) % 5 == 0:
         fnSendMessage(message)
